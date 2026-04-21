@@ -45,12 +45,21 @@ Rules:
 - Consolidate overlapping ideas into one tag (e.g. "loud-branding" and "logo" → just "visible-logo").
 - Tags should reflect *why* (the emotional or practical reason), not just *what* (the item feature).
 
-Good why_considering tags: vintage-provenance, investment-piece, natural-patina, travel-worthy, craftsmanship, rare-find, brand-legacy, versatile, timeless-silhouette
-Good why_no tags: visible-logo, loud-branding, logo-fatigue, price, condition, not-my-era, too-trendy, over-branded, size-wrong, redundant-in-wardrobe, have-better-already
+Good why_considering tags: vintage-provenance, investment-piece, natural-patina, travel-worthy, craftsmanship, rare-find, brand-legacy, versatile, timeless-silhouette, love-the-designer, brand-discovery
+Good why_no tags: visible-logo, loud-branding, logo-fatigue, price, condition, size-wrong, wrong-colour, wrong-fabric-for-use-case, misleading-material-claim, too-common-silhouette, derivative-design, doesnt-fit-my-wardrobe, doesnt-fit-my-style, have-equivalent, have-better, already-in-wardrobe
 
 Key distinctions for the collection-overlap tags:
-- redundant-in-wardrobe: already own something functionally equivalent (same role, similar aesthetic)
-- have-better-already: own a superior version of this (outclassed by something already in the collection)"""
+- already-in-wardrobe: already own something functionally equivalent (same role, similar aesthetic)
+- have-equivalent: own something very similar in purpose and feel
+- have-better: own a superior version that outperforms this one
+
+Key distinctions for the designer-appreciation tags:
+- love-the-designer: drawn to this because of the specific creative director/designer as a person and their vision (e.g. Lemaire as designer-owner)
+- brand-legacy: drawn to the brand's history and heritage, not necessarily one person
+
+Key style-fit tags:
+- doesnt-fit-my-wardrobe: the item has no natural home in what you already own
+- doesnt-fit-my-style: the aesthetic is appealing but not who you are"""
 
 
 def extract_page_id(url_or_id):
