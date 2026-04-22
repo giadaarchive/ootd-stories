@@ -146,6 +146,20 @@ These three are very different and should not be collapsed:
 - **`doesnt-fit-my-wardrobe`** = practical gap — there is literally nothing to wear it with, no occasion, no context.
 - **`doesnt-fit-my-style`** = identity gap — the item is appealing but it's not her. This is about self-knowledge, not logistics.
 
+### Reading logo reasoning from casual language
+
+The three logo tags are often all relevant at once. Do not skip them because the owner uses informal language. Map it:
+
+| What Lisa says | What tag to apply |
+|---------------|-----------------|
+| "very loud logos", "too much branding", "logo-forward" | `loud-branding` |
+| "I'm not a logo person", "I don't like paying for logos", "logos make me uncomfortable", "I don't want to pay for the logo" | `logo-fatigue` |
+| The logo on this specific item is prominent, monogram all-over, or unavoidable | `visible-logo` |
+
+These three can and should be applied together when notes mention logos. Example: *"it has very loud logos and I'm not a logo person, I'm not willing to pay money for a logo"* → all three logo tags.
+
+A common failure mode is applying only the functional blockers (`doesnt-fit-my-wardrobe`, `doesnt-fit-my-style`) while missing the logo reason that the owner stated explicitly as the primary driver. When logo language appears, it is almost always the lead reason, not a footnote.
+
 ---
 
 ## Emerging patterns
