@@ -55,15 +55,32 @@ The Tags DB is the analytical engine. Because it is a proper relational database
 
 Categorises tags into semantic groups: `branding`, `quality`, `construction`, `material`, `value`, `overlap`, `identity`, `designer`, `silhouette`, `unique`, `occasion`, `size`, `emotion`, `colour`.
 
-### How to read the patterns
+### How to read the patterns — two analytical views
 
-Open the Tags DB. The formula count columns show which tags are accumulating across decisions. This is the primary analytical view — not filtering individual items, but asking: across everything Lisa has considered and rejected, which reasons are most frequent? Sort by count descending.
+The system has two levels of analysis. Use them together.
+
+**Tag-level view — open the Tags DB.**
+Sort by count descending. Each row is a specific tag; the count columns show how many items carry it across "why yes", "why no", and "why I own it". This answers: *which specific reasons are most frequent?*
+
+**Type-level view — open the Type DB.**
+Each row is a category of tags (e.g. `identity`, `branding`, `quality`). The rollup columns aggregate counts across every tag of that type — summing across all tags within the category. Sort by rollup count descending. This answers: *what kind of reasoning is dominating my decisions?*
+
+The two views are complementary. The tag view shows granular detail; the type view shows the shape of decision-making at the category level. For example: individual tags like `timeless-silhouette`, `love-the-designer`, and `brand-legacy` might each appear frequently — but the type view reveals that `identity` and `designer` together are the dominant yes-driver as a class.
 
 The two analytical streams are separate by design:
 - **Why considering** (pull) — what draws her in
 - **Why not** (dealbreaker) — what stops the purchase
 
-These are not opposites. An item can score high on both — drawn in by `craftsmanship` and `love-the-designer`, blocked by `size-wrong`. The interesting items are the ones with strong pull scores that still didn't make it.
+These are not opposites. An item can score high on both — drawn in by `craftsmanship` and `love-the-designer`, blocked by `size-wrong`. The interesting items are the ones with strong pull but still didn't make it.
+
+#### How to configure the Type DB rollups
+
+Each Type DB row needs three rollup columns, each pulling through the back-relation from the Tags DB:
+- **Why yes count** — rollup of Tags → `Deinfluence - why yes` → count all
+- **Why no count** — rollup of Tags → `Deinfluence - why no` → count all
+- **Wardrobe count** — rollup of Tags → `L's wardrobe` → count all
+
+This gives you three numbers per type: how often this category of reason drives interest, rejection, and ownership.
 
 ---
 
