@@ -172,4 +172,38 @@ Posts publish to giadaarchive.substack.com daily at 01:00 GMT via substack.py. I
 To queue a post: set the Substack status on an OOTD entry to Post to Substack. The script picks it up on the next run.
 
 ---
+
+## The Deinfluence Tracker
+
+A parallel system for tracking what Lisa considered buying but ultimately said no to. The goal is not just to log individual rejections — it is to surface patterns in what attracts her and what stops her. The tags are the training data.
+
+### Scripts
+
+| Script | What it does |
+|--------|-------------|
+| `deinfluence_collector.py <URL>` | Scrapes a shop listing (Mercari, Yahoo Auctions, Rakuma/Fril), translates via Claude, creates a Notion entry with title, images, price, and source URL |
+| `deinfluence_tag.py <URL>` | Reads "L's comments and thoughts" from a Notion entry, calls Claude to generate tags, writes to relation properties in the Tags DB |
+| `deinfluence_tag.py --all` | Tags every untagged entry in the database |
+| `deinfluence_tag_migration.py` | One-time setup: populates the Tags DB and Type DB, migrates old multi_select entries to proper relations, tags wardrobe entries |
+
+### Database architecture
+
+Three Notion databases work together:
+
+- **Deinfluence DB** (`349ccd15cda18030876add491c9b992c`) — one row per item considered and rejected. Relations: `Why considering (Tags)` and `Why not (Tags)` → Tags DB.
+- **Tags DB** (`34accd15cda1800a8548c5223ce17612`) — one row per tag slug. Back-relations show how many items carry each tag, enabling count-based pattern analysis.
+- **Type DB** (`34accd15cda1805782cad566fce79ef2`) — categorises tags into semantic groups: branding, quality, identity, overlap, designer, etc.
+
+The `tag_id_map.json` and `type_id_map.json` files in this repo map tag names to their Notion page IDs.
+
+### What the data shows
+
+Sort the Tags DB by count to read the patterns across the full decision history:
+
+- **`size-wrong` is the most frequent dealbreaker.** Many items with strong pull factors fail solely on sizing — a sourcing constraint, not a preference failure.
+- **"Why yes" is identity-driven, not trend-driven.** The dominant pull tags are `craftsmanship`, `timeless-silhouette`, `love-the-designer`, and `brand-legacy`. The attraction is to quality of making and alignment with a specific aesthetic philosophy.
+- **Logo fatigue is a consistent blocker for heritage accessories**, even when other pull factors are strong.
+
+See `DEINFLUENCE_SKILLS.md` for the full tag vocabulary, decision framework, and key distinctions.
+---
 > *Second Best. Everything else is commentary.*
