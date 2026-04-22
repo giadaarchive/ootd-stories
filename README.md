@@ -188,21 +188,59 @@ A parallel system for tracking what Lisa considered buying but ultimately said n
 
 ### Database architecture
 
-Three Notion databases work together:
+Three Notion databases form a layered analytical system:
 
-- **Deinfluence DB** (`349ccd15cda18030876add491c9b992c`) — one row per item considered and rejected. Relations: `Why considering (Tags)` and `Why not (Tags)` → Tags DB.
-- **Tags DB** (`34accd15cda1800a8548c5223ce17612`) — one row per tag slug. Back-relations show how many items carry each tag, enabling count-based pattern analysis.
-- **Type DB** (`34accd15cda1805782cad566fce79ef2`) — categorises tags into semantic groups: branding, quality, identity, overlap, designer, etc.
+```
+Deinfluence item
+  └── Why considering (Tags)  ──┐
+  └── Why not (Tags)           ├──► Tags DB  ──► Type DB
+                                │   (tag-level)   (category-level)
+Wardrobe item                   │
+  └── Why i own it (Tags) ──────┘
+```
+
+**Deinfluence DB** (`349ccd15cda18030876add491c9b992c`)
+One row per item considered and rejected. Key relations:
+- `Why considering (Tags)` → Tags DB — pull factors
+- `Why not (Tags)` → Tags DB — dealbreakers
+
+**Tags DB** (`34accd15cda1800a8548c5223ce17612`)
+One row per tag slug (e.g. `craftsmanship`, `size-wrong`, `logo-fatigue`). Each tag has:
+- A relation to the Type DB — which category it belongs to
+- Back-relation counts from the deinfluence and wardrobe databases — how many items carry this tag across "why yes", "why no", and "why I own it"
+
+Sort by count descending to see which specific tags are accumulating. This is the granular view.
+
+**Type DB** (`34accd15cda1805782cad566fce79ef2`)
+One row per category (e.g. `identity`, `branding`, `quality`, `designer`, `overlap`). Each type has:
+- A rollup that aggregates all item counts from the tags it contains — summing across every tag of that type
+- Separate rollup columns for "why yes" (pull), "why no" (dealbreaker), and "why I own it" (wardrobe)
+
+Sort the Type DB by rollup count to see which *category of reason* is most dominant. This is the macro view — not "which specific tag appears most" but "which type of reason drives decisions most often."
+
+#### How to set up the Type DB rollups
+
+In each Type DB row, the rollup pulls through the back-relation from Tags, then counts the relation entries in the deinfluence/wardrobe databases. Configure three rollup columns:
+- **Why yes count** — rollup of Tags → `Deinfluence - why yes` back-relation → count all
+- **Why no count** — rollup of Tags → `Deinfluence - why no` back-relation → count all
+- **Wardrobe count** — rollup of Tags → `L's wardrobe` back-relation → count all
 
 The `tag_id_map.json` and `type_id_map.json` files in this repo map tag names to their Notion page IDs.
 
-### What the data shows
+### Reading the data — two views
 
-Sort the Tags DB by count to read the patterns across the full decision history:
+**Tag-level view (Tags DB):** Sort by individual tag count to find the most frequent specific reasons. Useful for operational questions: *Which exact tags are driving most of my no decisions?*
 
-- **`size-wrong` is the most frequent dealbreaker.** Many items with strong pull factors fail solely on sizing — a sourcing constraint, not a preference failure.
-- **"Why yes" is identity-driven, not trend-driven.** The dominant pull tags are `craftsmanship`, `timeless-silhouette`, `love-the-designer`, and `brand-legacy`. The attraction is to quality of making and alignment with a specific aesthetic philosophy.
-- **Logo fatigue is a consistent blocker for heritage accessories**, even when other pull factors are strong.
+**Type-level view (Type DB):** Sort by rollup count to find the dominant category of reason. Useful for strategic questions: *Am I primarily stopping purchases for identity reasons, practical wardrobe reasons, or material/construction reasons?*
+
+The two views together answer: not just *what* is happening at the tag level, but *what kind of decision-making* is happening at the category level.
+
+### What the data shows so far
+
+- **`size` type is the most frequent dealbreaker** — `size-wrong` alone accounts for a disproportionate share of no decisions. Sizing is a sourcing constraint, not a preference failure.
+- **`identity` and `designer` types dominate the yes column** — `timeless-silhouette`, `love-the-designer`, `brand-legacy`, `craftsmanship` cluster together. Decisions to consider something are driven by aesthetic philosophy and maker identity, not trend or practicality.
+- **`branding` type is a consistent blocker for accessories** — logo discomfort appears even when pull factors are strong.
+- **`overlap` type (have-equivalent, have-better) signals a mature wardrobe** — frequent overlap tags mean the collection has few genuine gaps left to fill.
 
 See `DEINFLUENCE_SKILLS.md` for the full tag vocabulary, decision framework, and key distinctions.
 ---
