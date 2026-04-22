@@ -169,7 +169,7 @@ The Storage Method and Wash Method fields in the database exist for a reason. Fi
 ---
 
 ## The Lookbook & Substack
-Every outfit in the OOTD database generates an editorial caption via lookbook.py, which uses Claude. Captions are editorial, precise, and structurally varied — no two posts follow the same format.
+Every outfit in the OOTD database generates an editorial caption via lookbook.py, which uses Claude. Captions are editorial, precise, and structurally varied — no two posts follow the same format. See `OOTD_SKILLS.md` for the full editorial style rules, naming conventions, and publishing pipeline.
 Posts publish to giadaarchive.substack.com daily at 01:00 GMT via substack.py. Images are hosted at github.com/giadaarchive/ootd-stories (public repository).
 To queue a post: set the Substack status on an OOTD entry to Post to Substack. The script picks it up on the next run.
 
