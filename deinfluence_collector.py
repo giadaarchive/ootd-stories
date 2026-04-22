@@ -129,7 +129,7 @@ Page text:
 
 Return JSON with exactly these keys:
 - "title": concise English item title (brand + item type + key detail, e.g. "Louis Vuitton Vintage Keepall 45 Monogram 1987")
-- "description": full English description translated from the listing. Include brand story, materials, condition, measurements, era/year. 3-5 paragraphs. Plain text, no markdown.
+- "description": full English translation of the listing description. Do NOT summarise — preserve every detail from the original: brand story, item features, all measurements (waist, length, hip, shoulder etc.), size label, colour, material, era/year, condition notes, included accessories. Use plain text with clear section breaks (Item / Size / Colour / Condition). If the listing has a measurements table, include every figure.
 - "price": price string (e.g. "¥67,980") or null
 - "source": domain name only (e.g. "jp.mercari.com")
 
