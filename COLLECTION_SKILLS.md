@@ -100,7 +100,7 @@ Each entry has a page body with freeform content. The structure is still evolvin
 
 - **Item photos** — images of the piece, usually from the listing or taken by Lisa
 - **Owners and Stories** — a table with `Previous Owners` (provenance, who owned it before) and `The Story` (why she bought it, what she loves, the emotional or aesthetic reasoning in her own words)
-- **Research and Notes** — a table with `Research Purpose` (what she was trying to learn or test), `Hypothesis`, `Observation Log` (notes after first, fifth, tenth wear), `Verdict` (KEEP / SELL / DONATE / TBD), `Resale Plan`
+- **Research and Notes** — a table with `Research Purpose` (what she was trying to learn or test), `Hypothesis`, `Observation Log` (notes after first, fifth, tenth wear)
 - **Item detail paragraphs** — structured lines pulled from the original listing: `[Brand]`, `[Size]`, `[Actual Size]`, `[Material]`, `[Color]`, `[Specifications]`, `[Condition]`, `[Remarks]`, `[Rank]`
 
 This structure is a work in progress. Older entries may follow different formats.
