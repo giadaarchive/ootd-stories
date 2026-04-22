@@ -237,6 +237,18 @@ def _make_text_block(line):
 
 
 def post_to_notion(page_id, analysis_text, products):
+    # Set page icon to first image of first product with images
+    first_image = next(
+        (img for p in products for img in p["images"] if img),
+        None
+    )
+    if first_image:
+        requests.patch(
+            f"https://api.notion.com/v1/pages/{page_id}",
+            headers=NOTION_HEADERS,
+            json={"icon": {"type": "external", "external": {"url": first_image}}},
+        )
+
     blocks = []
 
     # Images first (before any table), grouped by product
