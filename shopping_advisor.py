@@ -3,9 +3,10 @@
 shopping_advisor.py — Wardrobe-aware purchase advisor
 
 Usage:
-  python shopping_advisor.py <url>                             # single: should I buy this?
-  python shopping_advisor.py <url1> <url2>                    # compare two, pick one
-  python shopping_advisor.py <url1> <url2> --notion <page_id> # also post to Notion
+  python shopping_advisor.py <url>                              # single: should I buy this?
+  python shopping_advisor.py <url1> <url2>                     # compare two, pick one
+  python shopping_advisor.py <url1> <url2> --notion <page_id>  # also post to Notion
+  ... --context "I bought it because..."                        # tag "Why I own it" on the page
 
 Supported sources: jp.mercari.com, item.fril.jp
 """
@@ -30,6 +31,15 @@ NOTION_HEADERS = {
     "Notion-Version": "2022-06-28",
     "Content-Type": "application/json",
 }
+
+# Load tag vocabulary — maps slug → Notion page ID (same DB for wardrobe + deinfluence)
+_TAG_MAP_PATH = os.path.join(os.path.dirname(__file__), "tag_id_map.json")
+try:
+    import json as _json
+    with open(_TAG_MAP_PATH) as _f:
+        TAG_IDS: dict = _json.load(_f)
+except FileNotFoundError:
+    TAG_IDS = {}
 
 
 # ── Scrapers ──────────────────────────────────────────────────────────────────
@@ -216,6 +226,34 @@ Be explicit about the {WEAR_THRESHOLD}-wear threshold. Name the deciding factor.
     return response.content[0].text
 
 
+# ── Tag inference ─────────────────────────────────────────────────────────────
+
+def infer_why_i_own_it(context: str) -> list[str]:
+    """Use Claude to map free-text purchase context to tag slugs from the tag vocabulary.
+    Returns a list of Notion page IDs for matched tags (max 6)."""
+    if not TAG_IDS or not context.strip():
+        return []
+
+    tag_list = "\n".join(f"- {slug}" for slug in TAG_IDS.keys())
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    resp = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=200,
+        messages=[{"role": "user", "content": (
+            f"Purchase context:\n{context}\n\n"
+            f"Available tags:\n{tag_list}\n\n"
+            "Return ONLY a JSON array of the most relevant 'Why I own it' tag slugs (max 6). "
+            "Only include tags that genuinely apply. No explanation, just the JSON array."
+        )}]
+    )
+    raw = resp.content[0].text.strip()
+    m = re.search(r'\[.*?\]', raw, re.DOTALL)
+    if not m:
+        return []
+    slugs = _json.loads(m.group(0))
+    return [TAG_IDS[s] for s in slugs if s in TAG_IDS]
+
+
 # ── Notion poster ─────────────────────────────────────────────────────────────
 
 def _make_text_block(line):
@@ -236,17 +274,33 @@ def _make_text_block(line):
     }}
 
 
-def post_to_notion(page_id, analysis_text, products):
+def post_to_notion(page_id, analysis_text, products, purchase_context: str = ""):
     # Set page icon to first image of first product with images
     first_image = next(
         (img for p in products for img in p["images"] if img),
         None
     )
+    patch_props: dict = {}
     if first_image:
         requests.patch(
             f"https://api.notion.com/v1/pages/{page_id}",
             headers=NOTION_HEADERS,
             json={"icon": {"type": "external", "external": {"url": first_image}}},
+        )
+
+    # If purchase context provided, infer and apply "Why I own it" tags
+    if purchase_context and TAG_IDS:
+        print("  Inferring 'Why I own it' tags...")
+        tag_ids = infer_why_i_own_it(purchase_context)
+        if tag_ids:
+            patch_props["Why I own it (Tags)"] = {"relation": [{"id": tid} for tid in tag_ids]}
+            print(f"  Tags applied: {len(tag_ids)}")
+
+    if patch_props:
+        requests.patch(
+            f"https://api.notion.com/v1/pages/{page_id}",
+            headers=NOTION_HEADERS,
+            json={"properties": patch_props},
         )
 
     blocks = []
@@ -288,11 +342,14 @@ def main():
         print(__doc__)
         sys.exit(1)
 
-    urls, notion_page = [], None
+    urls, notion_page, purchase_context = [], None, ""
     i = 0
     while i < len(args):
         if args[i] == "--notion" and i + 1 < len(args):
             notion_page = _extract_page_id(args[i + 1])
+            i += 2
+        elif args[i] == "--context" and i + 1 < len(args):
+            purchase_context = args[i + 1]
             i += 2
         elif not args[i].startswith("--"):
             urls.append(args[i])
@@ -326,7 +383,7 @@ def main():
 
     if notion_page:
         print(f"\nPosting to Notion {notion_page}...")
-        post_to_notion(notion_page, result, products)
+        post_to_notion(notion_page, result, products, purchase_context=purchase_context)
         print("Done.")
 
     return result
