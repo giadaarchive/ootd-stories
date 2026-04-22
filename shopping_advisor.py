@@ -228,13 +228,28 @@ Be explicit about the {WEAR_THRESHOLD}-wear threshold. Name the deciding factor.
 
 # ── Tag inference ─────────────────────────────────────────────────────────────
 
+_TAG_DESCRIPTIONS = {
+    "wears-30-plus": (
+        "Apply when the buyer explicitly has confidence they will wear this item at least 30 times. "
+        "This is distinct from 'versatile' (which is about styling flexibility) — wears-30-plus is "
+        "specifically about commitment to the cost-per-wear threshold. Apply when the context shows "
+        "the buyer has thought through occasions and is convinced of repeated, long-term use."
+    ),
+}
+
 def infer_why_i_own_it(context: str) -> list[str]:
     """Use Claude to map free-text purchase context to tag slugs from the tag vocabulary.
     Returns a list of Notion page IDs for matched tags (max 6)."""
     if not TAG_IDS or not context.strip():
         return []
 
-    tag_list = "\n".join(f"- {slug}" for slug in TAG_IDS.keys())
+    # Build tag list with descriptions for tags that need disambiguation
+    tag_lines = []
+    for slug in TAG_IDS.keys():
+        desc = _TAG_DESCRIPTIONS.get(slug, "")
+        tag_lines.append(f"- {slug}" + (f": {desc}" if desc else ""))
+    tag_list = "\n".join(tag_lines)
+
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
     resp = client.messages.create(
         model="claude-haiku-4-5-20251001",
