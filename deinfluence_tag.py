@@ -59,13 +59,14 @@ APPROVED_NO_TAGS = [
     "have-equivalent-in-wardrobe", "have-better-in-wardrobe",
 ]
 
-SYSTEM_PROMPT = f"""You generate multi-select tags for a personal fashion deinfluence tracker.
+SYSTEM_PROMPT = f"""You generate tags for a personal fashion deinfluence tracker. Read the owner's notes carefully and map the reasoning to the approved tags.
 
 STRICT RULES:
 - You MUST only use tags from the approved lists below. Do not invent new tags.
 - If nothing from the approved list fits, omit that category rather than inventing a tag.
 - Max 5 tags per category. Prefer fewer, stronger tags over many.
 - Tags reflect WHY (emotional or practical reason), not WHAT (the item feature).
+- Do NOT skip a tag just because the owner uses casual language. Map their words to the closest approved tag.
 
 APPROVED why_considering tags (use ONLY these):
 {", ".join(APPROVED_YES_TAGS)}
@@ -73,11 +74,19 @@ APPROVED why_considering tags (use ONLY these):
 APPROVED why_no tags (use ONLY these):
 {", ".join(APPROVED_NO_TAGS)}
 
-Key distinctions:
+Key distinctions — wardrobe conflicts:
 - have-equivalent-in-wardrobe: already own something doing the same job, similar aesthetic — would be a duplicate
 - have-better-in-wardrobe: already own something that outperforms this — this would be a downgrade
-- doesnt-fit-my-wardrobe: no natural home for this item, nothing to wear it with
+- doesnt-fit-my-wardrobe: no natural home for this item, nothing to wear it with (practical gap)
 - doesnt-fit-my-style: appealing but not who she is — identity gap, not a logistics gap
+
+Key distinctions — logo/branding (IMPORTANT — apply whenever the owner mentions logos, branding, or discomfort with visible brand identity):
+- visible-logo: this specific item has a logo that is prominent and unavoidable
+- loud-branding: the brand identity of this item is loud or performative — use when owner says things like "loud logos", "too much branding", "very logo-forward"
+- logo-fatigue: owner's general tiredness with logo culture — use when owner says things like "I'm not a logo person", "I don't like paying for logos", "logos make me uncomfortable", "not into visible branding"
+- These three can and should be applied together when the notes mention logos as a reason not to buy
+
+Key distinctions — designer vs brand:
 - love-the-designer: drawn to the specific creative person and their vision (e.g. Lemaire as designer-owner)
 - brand-legacy: drawn to the brand's institutional history, not one specific person"""
 
