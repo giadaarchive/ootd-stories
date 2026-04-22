@@ -229,7 +229,7 @@ Be explicit about the {WEAR_THRESHOLD}-wear threshold. Name the deciding factor.
 # ── Tag inference ─────────────────────────────────────────────────────────────
 
 _TAG_DESCRIPTIONS = {
-    "wears-30-plus": (
+    "30-plus-wears": (
         "Apply when the buyer explicitly has confidence they will wear this item at least 30 times. "
         "This is distinct from 'versatile' (which is about styling flexibility) — wears-30-plus is "
         "specifically about commitment to the cost-per-wear threshold. Apply when the context shows "
