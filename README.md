@@ -29,7 +29,9 @@ WARDROBE ITEMS  <->  DESIGNER
 ```
 
 ### Wardrobe Items
-The spine of the system. Every physical object has one row. Key fields:
+The spine of the system. Every physical object has one row. See `COLLECTION_SKILLS.md` for the full property reference, care vocabulary, and how the video archival system works.
+
+Key fields:
 - SKU — unique identifier. Format: BRAND-CATEGORY-MATERIAL-YY-###
 - Designer — relation to Designer database Designer Brands 
 - Category — relation to Category database Category of Clothes and Untitled 
@@ -170,6 +172,20 @@ The Storage Method and Wash Method fields in the database exist for a reason. Fi
 Every outfit in the OOTD database generates an editorial caption via lookbook.py, which uses Claude. Captions are editorial, precise, and structurally varied — no two posts follow the same format.
 Posts publish to giadaarchive.substack.com daily at 01:00 GMT via substack.py. Images are hosted at github.com/giadaarchive/ootd-stories (public repository).
 To queue a post: set the Substack status on an OOTD entry to Post to Substack. The script picks it up on the next run.
+
+---
+
+## The Wardrobe Archive
+
+`wardrobe_archive.py` links video recordings to wardrobe entries. When a YouTube video about an item is published, run:
+
+```bash
+python3 wardrobe_archive.py <notion_page_url> <youtube_url>
+```
+
+It fetches the video transcript, uses Claude to extract the story, care instructions (wash method, temperature, drying, ironing), and tags (`Why I own it`, `What I'd change`), then writes everything back to the Notion entry automatically.
+
+The `Archival Recorded/shared` date property on each wardrobe entry marks when the video was recorded. Filter by this field to see which items have been archived on video.
 
 ---
 
