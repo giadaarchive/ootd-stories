@@ -273,4 +273,39 @@ Four specialist knowledge bases that go deeper than the core wardrobe system. Ea
 | **Authentication Appendix** | Brand-by-brand authentication guide — genuine vs. fake, vintage dating, telltale signs | `AUTHENTICATION_SKILLS.md` |
 
 ---
+
+---
+
+## The Shopping Advisor
+
+`shopping_advisor.py` is a wardrobe-aware purchase advisor for use while shopping, especially overseas on a phone without a laptop.
+
+### Two modes
+
+**Compare two items — pick one:**
+```bash
+python shopping_advisor.py <url1> <url2>
+```
+
+**Single item check — should I buy this?:**
+```bash
+python shopping_advisor.py <url>
+```
+
+**With optional Notion output:**
+```bash
+python shopping_advisor.py <url1> <url2> --notion <notion_page_url>
+```
+
+The script scrapes the product listing(s), loads the full wardrobe from Notion, and uses Claude to:
+- Extract colour, material, silhouette, and size from each listing
+- Generate 5 outfit ideas per item using **named pieces from the actual wardrobe**
+- Score versatility (1–10) and estimate annual wears
+- Identify what each item fills or duplicates in the wardrobe
+- Give a final recommendation tied to the **30-wear cost-per-wear threshold**
+
+Supported sources: `jp.mercari.com`, `item.fril.jp`. More can be added.
+
+This script is the planned backend for a mobile shopping app — usable in-store, overseas, phone only. The core logic stays constant as the interface evolves. See `SHOPPING_SKILLS.md` for the full decision framework and roadmap.
+
 > *Second Best. Everything else is commentary.*
