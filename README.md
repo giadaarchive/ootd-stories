@@ -260,4 +260,17 @@ The two views together answer: not just *what* is happening at the tag level, bu
 
 See `DEINFLUENCE_SKILLS.md` for the full tag vocabulary, decision framework, and key distinctions.
 ---
+
+## Bonus Guides
+
+Four specialist knowledge bases that go deeper than the core wardrobe system. Each is a living database, not a static page — grows with every purchase, experiment, and lesson learned.
+
+| Guide | Purpose | Skills file |
+|-------|---------|-------------|
+| **Deinfluence Tracker** | Items considered but not bought — pattern analysis of pull factors and dealbreakers | `DEINFLUENCE_SKILLS.md` |
+| **Laundry Science** | Garment care encyclopedia — chemistry, protocols, product reviews, personal incident log | `LAUNDRY_SKILLS.md` |
+| **Geographic Sourcing** | Mill and fibre knowledge base — origins, ownership, quality tiers, travel planning | `GEOGRAPHIC_SOURCING_SKILLS.md` |
+| **Authentication Appendix** | Brand-by-brand authentication guide — genuine vs. fake, vintage dating, telltale signs | `AUTHENTICATION_SKILLS.md` |
+
+---
 > *Second Best. Everything else is commentary.*
