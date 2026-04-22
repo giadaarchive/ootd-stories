@@ -26,6 +26,13 @@ from dotenv import load_dotenv
 
 load_dotenv("/Users/lisa/lookbook-stories/.env")
 
+_TAG_MAP_PATH = "/Users/lisa/lookbook-stories/tag_id_map.json"
+try:
+    with open(_TAG_MAP_PATH) as _f:
+        TAG_ID_MAP = json.load(_f)
+except FileNotFoundError:
+    TAG_ID_MAP = {}
+
 NOTION_TOKEN = os.environ["NOTION_TOKEN"]
 DEINFLUENCE_DB_ID = os.environ.get("DEINFLUENCE_DB_ID", "349ccd15cda18030876add491c9b992c")
 ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
@@ -180,16 +187,18 @@ def generate_tags(title, description, notes):
 
 
 def update_tags(page_id, why_considering, why_no):
-    """Patch the two multi_select properties on a Notion page."""
+    """Patch the two relation properties on a Notion page using the Tags DB."""
     payload = {"properties": {}}
     if why_considering:
-        payload["properties"]["Why i was considering"] = {
-            "multi_select": [{"name": t} for t in why_considering]
-        }
+        ids = [{"id": TAG_ID_MAP[t]} for t in why_considering if t in TAG_ID_MAP]
+        if ids:
+            payload["properties"]["Why considering (Tags)"] = {"relation": ids}
     if why_no:
-        payload["properties"]["Why ultimately no"] = {
-            "multi_select": [{"name": t} for t in why_no]
-        }
+        ids = [{"id": TAG_ID_MAP[t]} for t in why_no if t in TAG_ID_MAP]
+        if ids:
+            payload["properties"]["Why not (Tags)"] = {"relation": ids}
+    if not payload["properties"]:
+        return
     resp = requests.patch(
         f"https://api.notion.com/v1/pages/{page_id}",
         headers=NOTION_HEADERS,
