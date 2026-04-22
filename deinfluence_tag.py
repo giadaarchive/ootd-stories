@@ -36,30 +36,43 @@ NOTION_HEADERS = {
     "Content-Type": "application/json",
 }
 
-SYSTEM_PROMPT = """You generate multi-select tags for a personal fashion deinfluence tracker.
+APPROVED_YES_TAGS = [
+    "vintage-provenance", "investment-piece", "natural-patina", "travel-worthy",
+    "craftsmanship", "rare-find", "brand-legacy", "versatile", "timeless-silhouette",
+    "love-the-designer", "brand-discovery", "pattern-integrity", "colour",
+    "sentimental", "gifted",
+]
 
-Rules:
-- Tags must be reusable across many different items — general enough to reveal trends, specific enough to be meaningful.
-- Use lowercase with hyphens (e.g. visible-logo, investment-piece, natural-patina).
-- Max 5 tags per category. Prefer fewer, stronger tags over many weak ones.
-- Consolidate overlapping ideas into one tag (e.g. "loud-branding" and "logo" → just "visible-logo").
-- Tags should reflect *why* (the emotional or practical reason), not just *what* (the item feature).
+APPROVED_NO_TAGS = [
+    "visible-logo", "loud-branding", "logo-fatigue",
+    "price", "condition", "size-wrong", "wrong-colour",
+    "wrong-fabric-for-use-case", "misleading-material-claim",
+    "too-common-silhouette", "derivative-design",
+    "doesnt-fit-my-wardrobe", "doesnt-fit-my-style",
+    "have-equivalent-in-wardrobe", "have-better-in-wardrobe",
+]
 
-Good why_considering tags: vintage-provenance, investment-piece, natural-patina, travel-worthy, craftsmanship, rare-find, brand-legacy, versatile, timeless-silhouette, love-the-designer, brand-discovery
-Good why_no tags: visible-logo, loud-branding, logo-fatigue, price, condition, size-wrong, wrong-colour, wrong-fabric-for-use-case, misleading-material-claim, too-common-silhouette, derivative-design, doesnt-fit-my-wardrobe, doesnt-fit-my-style, have-equivalent, have-better, already-in-wardrobe
+SYSTEM_PROMPT = f"""You generate multi-select tags for a personal fashion deinfluence tracker.
 
-Key distinctions for the collection-overlap tags:
-- already-in-wardrobe: already own something functionally equivalent (same role, similar aesthetic)
-- have-equivalent: own something very similar in purpose and feel
-- have-better: own a superior version that outperforms this one
+STRICT RULES:
+- You MUST only use tags from the approved lists below. Do not invent new tags.
+- If nothing from the approved list fits, omit that category rather than inventing a tag.
+- Max 5 tags per category. Prefer fewer, stronger tags over many.
+- Tags reflect WHY (emotional or practical reason), not WHAT (the item feature).
 
-Key distinctions for the designer-appreciation tags:
-- love-the-designer: drawn to this because of the specific creative director/designer as a person and their vision (e.g. Lemaire as designer-owner)
-- brand-legacy: drawn to the brand's history and heritage, not necessarily one person
+APPROVED why_considering tags (use ONLY these):
+{", ".join(APPROVED_YES_TAGS)}
 
-Key style-fit tags:
-- doesnt-fit-my-wardrobe: the item has no natural home in what you already own
-- doesnt-fit-my-style: the aesthetic is appealing but not who you are"""
+APPROVED why_no tags (use ONLY these):
+{", ".join(APPROVED_NO_TAGS)}
+
+Key distinctions:
+- have-equivalent-in-wardrobe: already own something doing the same job, similar aesthetic — would be a duplicate
+- have-better-in-wardrobe: already own something that outperforms this — this would be a downgrade
+- doesnt-fit-my-wardrobe: no natural home for this item, nothing to wear it with
+- doesnt-fit-my-style: appealing but not who she is — identity gap, not a logistics gap
+- love-the-designer: drawn to the specific creative person and their vision (e.g. Lemaire as designer-owner)
+- brand-legacy: drawn to the brand's institutional history, not one specific person"""
 
 
 def extract_page_id(url_or_id):
