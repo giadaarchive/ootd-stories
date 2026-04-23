@@ -57,11 +57,17 @@ def scrape_listing(url):
         title = re.sub(r"\s+by\s+\S+$", "", title).strip()
 
         og_image = meta.get("og:image", "")
+        og_description = meta.get("og:description", meta.get("description", ""))
         price_raw = meta.get("product:price:amount", "")
         currency = meta.get("product:price:currency", "")
         price = f"{currency} {price_raw}".strip() if price_raw else None
 
         page_text = page.inner_text("body")
+
+        # For Yahoo Auctions the item description only loads behind login.
+        # Prepend the meta description so Claude has it even when body text is sparse.
+        if "auctions.yahoo" in url and og_description:
+            page_text = f"[Listing description from meta]:\n{og_description}\n\n[Page body]:\n{page_text}"
 
         # Extract images by platform, fall back to OG image
         images = []
@@ -157,7 +163,7 @@ Return only the JSON object, no other text.""",
     raise ValueError(f"Unterminated JSON in response: {text[:200]}")
 
 
-def create_notion_entry(title, description, images, price, source_url, source):
+def create_notion_entry(title, description, images, price, source_url, source, reason=""):
     """Create a new page in the Deinfluence Notion database."""
     children = []
 
@@ -168,6 +174,22 @@ def create_notion_entry(title, description, images, price, source_url, source):
             "type": "image",
             "image": {"type": "external", "external": {"url": img_url}},
         })
+
+    # Decision reason (why not bought)
+    if reason:
+        children.append({
+            "object": "block",
+            "type": "heading_3",
+            "heading_3": {"rich_text": [{"type": "text", "text": {"content": "Why I didn't buy it"}}]},
+        })
+        for para in reason.split("\n\n"):
+            para = para.strip()
+            if para:
+                children.append({
+                    "object": "block",
+                    "type": "paragraph",
+                    "paragraph": {"rich_text": [{"type": "text", "text": {"content": para}}]},
+                })
 
     # Description
     if description:
@@ -208,15 +230,41 @@ def create_notion_entry(title, description, images, price, source_url, source):
         json=payload,
     )
     resp.raise_for_status()
-    return resp.json()
+    page = resp.json()
+
+    # Set page icon to first image
+    if images:
+        requests.patch(
+            f"https://api.notion.com/v1/pages/{page['id']}",
+            headers=NOTION_HEADERS,
+            json={"icon": {"type": "external", "external": {"url": images[0]}}},
+        )
+
+    return page
 
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python deinfluence_collector.py <URL>")
+        print("Usage: python deinfluence_collector.py <URL> [--reason 'why I skipped']")
         sys.exit(1)
 
-    url = sys.argv[1]
+    args = sys.argv[1:]
+    url, reason = None, ""
+    i = 0
+    while i < len(args):
+        if args[i] == "--reason" and i + 1 < len(args):
+            reason = args[i + 1]
+            i += 2
+        elif not args[i].startswith("--"):
+            url = args[i]
+            i += 1
+        else:
+            i += 1
+
+    if not url:
+        print("Error: provide a product URL.")
+        sys.exit(1)
+
     print(f"Scraping: {url}")
 
     raw = scrape_listing(url)
@@ -235,7 +283,7 @@ def main():
     print(f"  → {price}")
 
     print("Creating Notion entry...")
-    result = create_notion_entry(title, description, raw["images"], price, url, source)
+    result = create_notion_entry(title, description, raw["images"], price, url, source, reason=reason)
 
     notion_url = result.get("url", "")
     print(f"Done! {notion_url}")
