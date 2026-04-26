@@ -2,6 +2,7 @@ import os
 import io
 import time
 import base64
+import random
 import requests
 import anthropic
 from PIL import Image
@@ -21,7 +22,7 @@ NOTION_HEADERS = {
     "Content-Type": "application/json",
 }
 
-PROMPT = """You are writing fashion narratives for a personal lookbook. Write an evocative, atmospheric fashion story for this outfit.
+PROMPT_BASE = """You are writing fashion narratives for a personal lookbook. Write an evocative, atmospheric fashion story for this outfit.
 
 Write 3–4 paragraphs that capture the vibe, energy and character of this look. Do not describe the clothes literally — write about the feeling, the world this outfit belongs to, the character wearing it, the cultural moment it references.
 
@@ -34,6 +35,17 @@ Do not start with "I" or reference yourself. Begin in scene.
 Style rules:
 - Never use contradiction sentence structures. Do not write "She is not X, Y, or Z. She is W." Build meaning through what something IS, not by negating what it is not.
 - Use no em dashes (—). If you feel the urge to use one, restructure the sentence instead. Maximum one em dash in the entire piece if truly unavoidable, but the strong preference is none at all."""
+
+PROMPT_SOMEWHERE_BETWEEN = PROMPT_BASE + """
+
+Opening instruction: Begin the piece with the exact words "Somewhere between" and build the scene from there."""
+
+
+def get_prompt():
+    """8.5% probability of using the 'Somewhere between' opening."""
+    if random.random() < 0.085:
+        return PROMPT_SOMEWHERE_BETWEEN
+    return PROMPT_BASE
 
 client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
@@ -99,32 +111,21 @@ def get_page_image_urls(page_id):
     return urls
 
 
-MAX_IMAGE_BYTES = 4 * 1024 * 1024  # 4MB safe limit (Claude max is 5MB)
+MAX_DIMENSION = 1200  # Claude tiles images at 512px; 1200px longest side = ~6 tiles vs ~32 for 4K
 
 def image_to_base64(url):
     r = requests.get(url, timeout=30)
     r.raise_for_status()
-    data = r.content
 
-    # Resize if over the size limit
-    if len(data) > MAX_IMAGE_BYTES:
-        img = Image.open(io.BytesIO(data))
-        img = img.convert("RGB")
-        scale = 0.7
-        while True:
-            w, h = int(img.width * scale), int(img.height * scale)
-            buf = io.BytesIO()
-            img.resize((w, h), Image.LANCZOS).save(buf, format="JPEG", quality=85)
-            if buf.tell() <= MAX_IMAGE_BYTES or scale < 0.2:
-                data = buf.getvalue()
-                break
-            scale *= 0.7
-        return base64.standard_b64encode(data).decode(), "image/jpeg"
+    img = Image.open(io.BytesIO(r.content)).convert("RGB")
 
-    content_type = r.headers.get("Content-Type", "image/jpeg").split(";")[0].strip()
-    if content_type not in ("image/jpeg", "image/png", "image/gif", "image/webp"):
-        content_type = "image/jpeg"
-    return base64.standard_b64encode(data).decode(), content_type
+    # Resize to max dimension — reduces token cost and stays well under 5MB limit
+    if max(img.width, img.height) > MAX_DIMENSION:
+        img.thumbnail((MAX_DIMENSION, MAX_DIMENSION), Image.LANCZOS)
+
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=85)
+    return base64.standard_b64encode(buf.getvalue()).decode(), "image/jpeg"
 
 
 def generate_story(image_urls):
@@ -143,7 +144,7 @@ def generate_story(image_urls):
     if not content:
         return None
 
-    content.append({"type": "text", "text": PROMPT})
+    content.append({"type": "text", "text": get_prompt()})
 
     for attempt in range(5):
         try:
