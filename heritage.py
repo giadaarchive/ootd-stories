@@ -103,6 +103,31 @@ def get_items_for_designer(designer_id):
     return pages
 
 
+def get_recent_items(n):
+    """Fetch the N most recently created items from the collection DB."""
+    r = requests.post(
+        f"https://api.notion.com/v1/databases/{COLLECTION_DB_ID}/query",
+        headers=NOTION_HEADERS,
+        json={
+            "page_size": n,
+            "sorts": [{"timestamp": "created_time", "direction": "descending"}],
+        },
+    )
+    r.raise_for_status()
+    return r.json().get("results", [])
+
+
+def get_brand_for_page(page):
+    """Return (brand_name, era_context) by matching Designer relation to TARGET_DESIGNERS."""
+    designer_rel = page.get("properties", {}).get("Designer", {}).get("relation", [])
+    for rel in designer_rel:
+        rel_id = rel.get("id", "").replace("-", "")
+        for brand, did in TARGET_DESIGNERS.items():
+            if rel_id == did.replace("-", ""):
+                return brand, DESIGNER_ERAS.get(brand, "")
+    return "Unknown", ""
+
+
 def get_all_blocks(page_id):
     blocks, cursor = [], None
     while True:
@@ -213,72 +238,94 @@ def build_prompt(brand, item, era_context, page_description=""):
     desc_block = ""
     if page_description.strip():
         desc_block = f"""
-Existing description already recorded in the archive (use this as ground truth for the piece's
-specific details — materials, construction, condition, style name, label details, sizing):
+Existing description already recorded in the archive — use as ground truth for this piece's
+specific details (materials, construction, condition, style name, label, sizing, acquisition context):
 ---
 {page_description}
 ---
 """
 
-    return f"""You are writing archive documentation for a single luxury fashion piece in a personal wardrobe collection.
+    return f"""You are writing a six-layer provenance and archive document for a single luxury fashion piece in a personal wardrobe collection.
 
-CRITICAL RULE: Every word must be about THIS SPECIFIC PIECE — this garment, this bag, this shoe, this scarf.
-Do NOT mention other product categories. If this is a coat, write about coats and outerwear only.
-If this is a scarf, write about scarves only. Do not name-drop Birkin bags when writing about a coat.
-Do not reference silk carrés when writing about shoes. Stay entirely within the world of this object.
+CRITICAL RULE: Every word must be about THIS SPECIFIC PIECE — this garment, this bag, this shoe.
+Do NOT describe the house's general output or other product categories. Stay within the world of this object.
+Be honest about what is confirmed versus approximate versus unknown — do not invent specifics.
+BANNED PHRASES: never write "quiet luxury" or any variation of it. Describe what the piece actually is.
 
 Brand: {brand}
 Item: {item["name"]}
 {details_str}
 {desc_block}
-Designer-era context (use only to date and contextualise THIS piece — do not paste this into the output):
+Designer-era context (use only to date and contextualise — do not paste into output):
 {era_context}
 
-Return JSON with exactly five keys. Each value is a plain string; separate paragraphs with \\n\\n.
-No bullet points. No headers inside the text. Write in present tense where appropriate.
+---
 
-"about_this_piece"
-  1–2 paragraphs. What is this specific object — its garment category, the creative director
-  who designed it, the season/era it belongs to, and what makes it notable within the house's
-  output for THIS category. Ground every sentence in this specific piece.
+Return JSON with exactly seven keys. Each value is a plain string; separate paragraphs with \\n\\n.
+No bullet points inside values. No sub-headers inside values. Present tense where appropriate.
 
-"design_language"
-  1–2 paragraphs. The design language expressed IN THIS PIECE: its silhouette, cut, and
-  proportion; its collar, closure, sleeve, hem, or handle treatment (whatever applies);
-  the structural choices that define how it looks and moves. For a coat: how long is it,
-  how does the shoulder sit, where does it fall at the waist, how does it close, what does
-  the collar do. For a shoe: the heel geometry, the vamp line, the toe shape. This is NOT
-  the house's general aesthetic — it is the aesthetic of this specific object.
+"object_identity"
+  2–3 paragraphs. The piece itself, unambiguously identified:
+  — Maker, line/model name, colorway, size
+  — Specific materials: fabric composition or leather type, hardware finish, lining material,
+    date code (location and what it reads — if unknown or unread, say so explicitly)
+  — Production era: year or year range, country of manufacture
+  — Distinguishing physical details: stitching count per cm on main seams, hardware weight
+    and finish (palladium, gold, brass — and whether a magnet test has been done),
+    interior stamp placement, label typography. Flag anything unverified.
 
-"craft_and_materials"
-  2–3 paragraphs. Precise materials and construction for THIS piece. Include all that apply:
-  — Textiles: fabric name and composition, weave type, weight (g/m² or momme), finish
-  — Animal materials: fur type (species, part of animal, treatment method), leather name,
-    tannery if known, tanning method (vegetable, chrome-free, combination), how the material
-    is used on this piece specifically
-  — Construction: stitching method (saddle stitch / hand-sewn / machine), stitch count,
-    thread material, seam type, edge treatment, interfacing, canvassing, lining material
-  — Closures and hardware: button material (horn, shell, metal), clasp type, hardware plating
-  — Size context: what the size label means in this house's sizing
-  If a specific detail is not confirmed, note it as typical for the house/era.
+"maker_context"
+  2 paragraphs. Why this piece matters relative to others from the same house:
+  — Who was creative director at time of production and what defined that era's output
+    for THIS garment/object category specifically
+  — What made this era's version different from earlier and later production
+  — What changed after — why the older version differs from what's sold today
 
-"historical_context"
-  1–2 paragraphs. Timeline and decisions SPECIFIC to this type of piece and these materials:
-  — When did this house/designer work with this silhouette, this material, this construction?
-  — If fur: when did the house start using it, when (if ever) did they stop?
-  — If a specific fabric: what is the house's relationship with that material?
-  — What was the collector or resale significance of this garment type from this era?
-  — What was happening in fashion at the time this piece was made, specifically relevant
-    to this category of garment?
+"authentication"
+  2–3 paragraphs. Proof the object is what it claims to be — model-specific, not brand-generic:
+  — How to authenticate THIS SPECIFIC MODEL: date code format and location for this line,
+    hardware tells unique to this model, stitching count, material characteristics
+  — Known fakes for this model — what they get wrong (wrong zipper pull weight, incorrect
+    stamp placement, hardware that doesn't hold a magnet, wrong fabric hand, shallow embossing)
+  — Condition assessment: honest grading of this specific piece — what is worn, what is
+    pristine, what shows age, what needs attention
+  — Authentication gaps: what can only be confirmed by physical inspection or trade document
+
+"ownership_history"
+  1–2 paragraphs. Where the piece has been. Be explicit about what is unknown:
+  — Original retail context: store type, approximate year of first sale, original retail
+    price range if known or estimable
+  — Subsequent ownership: what is known or can be inferred from condition, provenance
+    details, or acquisition context (estate, collector, first-generation owner, number of owners)
+  — Geographic and climate history if determinable from condition evidence
+  — Care and storage history based on what the current condition suggests
+  Incomplete is fine — say "unknown" rather than guessing.
+
+"market_context"
+  2 paragraphs. Where this piece sits in the current secondary market — specific, not vague:
+  — Current resale price range for THIS model and colorway specifically, not the brand in
+    general (cite approximate current range on Vestiaire, 1stDibs, or comparable platforms)
+  — Price trajectory: appreciating, stable, or declining — and why
+  — Rarity: how frequently this specific model and colorway surfaces on secondary market
+  — Comparable pieces: what else exists at this price and quality level, and why this is
+    or is not the better choice for a serious collector
+
+"wearability"
+  2 paragraphs. How this piece actually functions for a real woman — the layer no authentication
+  service or resale platform provides:
+  — Who it suits: body proportion this flatters, lifestyle and wardrobe profile it belongs in
+  — How it wears: weight, drape or structure, strap or closure handling, interior organisation
+  — What it resolves: 2–3 specific outfit contexts where this piece is the right answer
+  — What it fights with: wardrobe contexts where it doesn't work
+  — CPW potential: realistic estimate of how often a woman with the right wardrobe profile
+    would reach for it, and what determines that frequency
 
 "research_notes"
-  2–3 paragraphs summarising the research process for this specific piece:
-  — What questions were investigated (e.g. "when did Hermès use weasel fur collar on coats")
-  — What is confirmed vs what is approximate or uncertain
-  — What would need physical inspection or trade documentation to verify
-  — Any notable gaps in the public record for this specific piece type
+  2 paragraphs. Research process summary:
+  — What was investigated, what is confirmed vs approximate vs uncertain
+  — What physical inspection or trade documentation would resolve the remaining gaps
 
-Total across all five keys: 600–900 words.
+Total across all seven keys: 900–1400 words.
 Return only valid JSON, nothing else."""
 
 
@@ -289,7 +336,7 @@ def generate_content(brand, item, page_description=""):
     prompt  = build_prompt(brand, item, era_ctx, page_description)
     msg     = claude.messages.create(
         model="claude-opus-4-7",
-        max_tokens=3200,
+        max_tokens=4500,
         messages=[{"role": "user", "content": prompt}],
     )
     raw = msg.content[0].text.strip()
@@ -341,10 +388,12 @@ def build_blocks(content):
     ]
 
     for key, label in [
-        ("about_this_piece", "About This Piece"),
-        ("design_language",  "Design Language"),
-        ("craft_and_materials", "Craft & Materials"),
-        ("historical_context",  "Historical Context"),
+        ("object_identity",  "Layer 1 — Object Identity"),
+        ("maker_context",    "Layer 2 — Maker Context"),
+        ("authentication",   "Layer 3 — Authentication"),
+        ("ownership_history","Layer 4 — Ownership History"),
+        ("market_context",   "Layer 5 — Market Context"),
+        ("wearability",      "Layer 6 — Wearability"),
     ]:
         blocks.append(h3(label))
         for p in content.get(key, "").split("\n\n"):
@@ -352,7 +401,6 @@ def build_blocks(content):
             if p:
                 blocks.append(para(p))
 
-    # Research notes go in a collapsible toggle
     research_paras = [
         p.strip()
         for p in content.get("research_notes", "").split("\n\n")
@@ -389,16 +437,57 @@ def process_page(page_id, brand, item, force=False):
 
 
 def main():
-    force_page_id = None
-    if "--force" in sys.argv:
-        idx = sys.argv.index("--force")
-        if idx + 1 < len(sys.argv):
-            raw_id = sys.argv[idx + 1].replace("-", "")
-            # normalise to hyphenated UUID
-            force_page_id = f"{raw_id[:8]}-{raw_id[8:12]}-{raw_id[12:16]}-{raw_id[16:20]}-{raw_id[20:]}"
+    import argparse
+    parser = argparse.ArgumentParser(description="Write heritage notes to Notion collection pages")
+    parser.add_argument("--force", metavar="PAGE_ID", help="Clear and rewrite one specific page")
+    parser.add_argument("--recent", metavar="N", type=int, help="Process the N most recently added items")
+    args = parser.parse_args()
 
     written = skipped = errors = 0
 
+    if args.force:
+        raw_id = args.force.replace("-", "")
+        force_page_id = f"{raw_id[:8]}-{raw_id[8:12]}-{raw_id[12:16]}-{raw_id[16:20]}-{raw_id[20:]}"
+        # Find the page across all designers
+        found = False
+        for brand, designer_id in TARGET_DESIGNERS.items():
+            for page in get_items_for_designer(designer_id):
+                if page["id"] == force_page_id:
+                    item = extract_item_details(page)
+                    print(f"\n  → {item['name']!r}  ({brand})")
+                    process_page(force_page_id, brand, item, force=True)
+                    found = True
+                    break
+            if found:
+                break
+        if not found:
+            print(f"Page {force_page_id} not found in any TARGET_DESIGNER — cannot proceed")
+        return
+
+    if args.recent:
+        print(f"\nFetching {args.recent} most recently added items...")
+        pages = get_recent_items(args.recent)
+        print(f"  {len(pages)} items retrieved\n")
+        for page in pages:
+            brand, _ = get_brand_for_page(page)
+            item = extract_item_details(page)
+            print(f"\n  → {item['name']!r}  ({brand})")
+            try:
+                result = process_page(page["id"], brand, item, force=False)
+                if result == "done":
+                    written += 1
+                else:
+                    skipped += 1
+                time.sleep(1)
+            except Exception as e:
+                print(f"     ERROR: {e}")
+                errors += 1
+                time.sleep(2)
+        print(f"\n{'='*60}")
+        print(f"Done. {written} written, {skipped} skipped, {errors} errors.")
+        return
+
+    # Default: process all TARGET_DESIGNERS
     for brand, designer_id in TARGET_DESIGNERS.items():
         print(f"\n{'='*60}")
         print(f"  {brand}")
@@ -410,11 +499,10 @@ def main():
         for page in items:
             item    = extract_item_details(page)
             page_id = page["id"]
-            force   = (force_page_id is not None and page_id == force_page_id)
             print(f"\n  → {item['name']!r}")
 
             try:
-                result = process_page(page_id, brand, item, force=force)
+                result = process_page(page_id, brand, item, force=False)
                 if result == "done":
                     written += 1
                 else:
