@@ -1,0 +1,113 @@
+# Second Best
+> *The best things in life are free. The second best are very expensive.*
+
+Personal archive system for Lisa's wardrobe collection. Scripts, documentation, and workflow tools.
+
+**Images:** `main` branch — raw.githubusercontent.com permanent hosting for Notion
+**Scripts & docs:** `scripts` branch — this branch
+
+---
+
+## Restoring on a new machine
+
+```bash
+# 1. Clone scripts only (main branch is images only — 572MB, don't clone it)
+git clone -b scripts --single-branch https://github.com/giadaarchive/ootd-stories.git lookbook-stories
+cd lookbook-stories
+
+# 2. Install Python dependencies
+pip3 install -r requirements.txt
+pip3 install playwright
+playwright install chromium
+
+# 3. Create .env — copy this template and fill in values
+cat > .env << 'EOF'
+NOTION_TOKEN=secret_...
+NOTION_DATABASE_ID=ad079964-9690-43ae-9fa8-5a4f3ca1a9ee
+ANTHROPIC_API_KEY=sk-ant-...
+GITHUB_TOKEN=ghp_...
+GITHUB_REPO=giadaarchive/ootd-stories
+DEINFLUENCE_DB_ID=349ccd15-cda1-8030-876a-dd491c9b992c
+SUBSTACK_EMAIL=...
+SUBSTACK_PASSWORD=...
+SUBSTACK_TOTP_SECRET=...
+EOF
+
+# 4. Re-authenticate Substack (first run only)
+python3 setup_cookies.py
+
+# 5. Verify Notion connection
+python3 -c "
+import os, requests
+from dotenv import load_dotenv; load_dotenv()
+H = {'Authorization': f'Bearer {os.environ[\"NOTION_TOKEN\"]}', 'Notion-Version': '2022-06-28'}
+r = requests.post('https://api.notion.com/v1/databases/ad079964969043ae9fa85a4f3ca1a9ee/query', headers=H, json={'page_size': 1})
+print('OK' if r.status_code == 200 else f'FAIL: {r.status_code}')
+"
+```
+
+---
+
+## Where to find things
+
+| What | File |
+|------|------|
+| Skills index — every task, one file | [`skills/INDEX.md`](skills/INDEX.md) |
+| All Notion property keys and DB IDs | [`NOTION_SCHEMA.md`](NOTION_SCHEMA.md) |
+| Designer IDs + SKU codes | [`DESIGNER_IDS.md`](DESIGNER_IDS.md) |
+| First-time setup (detail) | [`SETUP.md`](SETUP.md) |
+| Errors and how to fix them | [`MISTAKES.md`](MISTAKES.md) |
+| Workflow gaps to address | [`GAPS.md`](GAPS.md) |
+
+---
+
+## System overview
+
+Notion-backed collection management, publishing, and research system. Six databases wired together:
+
+```
+WARDROBE ITEMS  ←→  DESIGNER          (brand codes, SKU prefixes)
+      ↕              CATEGORY          (12 categories, SKU codes)
+MATERIAL CATEGORY    COLOUR
+      ↕
+OOTD / LOOKBOOK  →  Substack (giadaarchive.substack.com)
+```
+
+Scripts handle: scraping new items, hosting images on GitHub, writing AI heritage notes, generating OOTD stories, scheduling Substack posts, tagging, SKU generation, wardrobe analytics.
+
+---
+
+## Key database IDs
+
+| Database | ID |
+|----------|----|
+| L's Collection of Amazing Pieces | `ad079964-9690-43ae-9fa8-5a4f3ca1a9ee` |
+| Deinfluence tracker | `349ccd15-cda1-8030-876a-dd491c9b992c` |
+| Category | `2eaccd15-cda1-8056-a4f6-c42c62c33851` |
+| Material Category | `d9f03692-7341-41b7-b5fa-917cd6b37530` |
+
+Full schema with all property types: [`NOTION_SCHEMA.md`](NOTION_SCHEMA.md)
+
+---
+
+## SKU format
+
+```
+BRAND-CATEGORY-MATERIAL-YY-###
+Example: LV-BAG-CNV-96-001
+```
+
+Run `python3 generate_skus.py` to assign SKUs to all new items. Run `python3 setup_codes.py` first if any category or material is missing a code.
+
+---
+
+## Publishing pipeline
+
+```
+Notion OOTD entry (photos + items worn)
+    ↓  python3 lookbook.py
+AI story written to Notion
+    ↓  set Substack status → "Post to Substack"
+    ↓  python3 substack.py
+Scheduled on Substack — weekdays 9am SGT
+```
