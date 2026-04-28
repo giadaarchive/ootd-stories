@@ -1,0 +1,21 @@
+# Secrets & credentials
+.env
+.substack_cookies.json
+
+# Runtime state (machine-specific, not portable)
+.substack_schedule_state.json
+wardrobe_last15.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Logs
+*.log
+
+# macOS
+.DS_Store
+
+# Images (hosted separately via GitHub API, not committed as git objects)
+collection-images/
