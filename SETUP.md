@@ -16,9 +16,11 @@ First-time environment setup for the `giadaarchive/ootd-stories` repo.
 
 ## 1. Clone the repo
 
+Scripts live on the `scripts` branch. The `main` branch holds collection images only — do not clone it (572MB).
+
 ```bash
-git clone https://github.com/giadaarchive/ootd-stories.git
-cd ootd-stories
+git clone -b scripts --single-branch https://github.com/giadaarchive/ootd-stories.git lookbook-stories
+cd lookbook-stories
 ```
 
 ---
