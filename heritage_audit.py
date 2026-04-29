@@ -19,7 +19,7 @@ import os
 import time
 import requests
 from dotenv import load_dotenv
-import anthropic
+from llm_client import LLMClient
 
 load_dotenv()
 
@@ -44,7 +44,7 @@ HERITAGE_MARKER      = "Heritage & House Notes"
 CRAFT_MARKER         = "Craft & Materials"
 VERIFICATION_MARKER  = "Verification & Sources"
 
-claude = anthropic.Anthropic()
+claude = LLMClient()  # Auto-detects provider: Qwen, Anthropic, or MiniMax
 
 
 # ── Notion helpers ──────────────────────────────────────────────────────────
@@ -307,12 +307,7 @@ def generate_craft_details(brand, item):
         year=item["year"] or "unknown",
         material=item["material"] or "unknown",
     )
-    msg = claude.messages.create(
-        model="claude-opus-4-7",
-        max_tokens=800,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    raw = msg.content[0].text.strip()
+    raw = claude.generate("You are writing craft and material notes for a luxury fashion archive.", prompt, max_tokens=800)
     if raw.startswith("```"):
         raw = raw.split("```", 2)[1]
         if raw.startswith("json"):
@@ -330,12 +325,7 @@ def generate_audit(brand, item, design_language, this_piece, craft_details):
         this_piece=this_piece or "(not available)",
         craft_details=craft_details or "(not available)",
     )
-    msg = claude.messages.create(
-        model="claude-opus-4-7",
-        max_tokens=1800,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    raw = msg.content[0].text.strip()
+    raw = claude.generate("You are a luxury fashion fact-checker and archival researcher. Return ONLY valid JSON.", prompt, max_tokens=1800)
     if raw.startswith("```"):
         raw = raw.split("```", 2)[1]
         if raw.startswith("json"):

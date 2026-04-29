@@ -17,7 +17,7 @@ import sys
 import json
 import time
 from dotenv import load_dotenv
-import anthropic
+from llm_client import LLMClient
 
 load_dotenv()
 
@@ -28,6 +28,8 @@ NOTION_HEADERS   = {
     "Notion-Version": "2022-06-28",
     "Content-Type": "application/json",
 }
+
+claude = LLMClient()  # Auto-detects provider: Qwen, Anthropic, or MiniMax
 
 TARGET_DESIGNERS = {
     "Hermès":              "2b9ccd15-cda1-80fe-9888-dabde81bb8b1",
@@ -75,8 +77,63 @@ DESIGNER_ERAS = {
     ),
 }
 
-HERITAGE_MARKER = "Heritage & House Notes"
-claude          = anthropic.Anthropic()
+HERITAGE_MARKER  = "Heritage & House Notes"
+CHECKPOINT_FILE  = os.path.join(os.path.dirname(os.path.abspath(__file__)), "heritage_checkpoint.json")
+claude           = anthropic.Anthropic()
+
+SYSTEM_PROMPT = """\
+You are writing a heritage document for a single luxury fashion piece in a personal archive collection.
+
+CRITICAL RULE: Every word must be about THIS SPECIFIC PIECE — this exact garment or object.
+Write for someone who already knows the brand. They want to understand this piece specifically.
+Do NOT mention: retail prices, retailers, where to buy, resale value, market context,
+authentication, ownership history, purchase details, or previous owners.
+BANNED: never write "quiet luxury" or any variation. Describe what the piece actually is.
+
+Return JSON with exactly four keys. Each value is a plain string; separate paragraphs with \\n\\n.
+No bullet points or sub-headers inside values.
+
+"about_this_piece"
+  2 paragraphs. What this piece is:
+  Exact type, silhouette, colour, size. Key details that make it immediately identifiable —
+  proportions, closure, hardware, label, date code or production markings if visible.
+  Honest condition description.
+
+"design_language"
+  2 paragraphs. The aesthetic and creative decisions in this piece:
+  Silhouette, line, proportion, detail, finish. How these choices reflect the house's design
+  vocabulary at the time. What this piece communicates visually and why those choices matter
+  for this specific category and era.
+
+"craft_and_materials"
+  2 paragraphs. How this piece is made and what it is made of:
+  Specific materials — fibre composition, leather type, hardware material and finish, lining.
+  Construction — seaming, hand-finishing, hardware mechanics, stitching. What the quality of
+  craft reveals about the production standard and era.
+
+"historical_context"
+  2 paragraphs. Where this piece sits in the history of the house and its period:
+  Creative director at time of production and what defined that era for this specific category.
+  What was happening in fashion at the time and how this piece reflects it. Why this era's
+  production differs from earlier and later output.
+
+Total across all four keys: 500–700 words.
+Return only valid JSON, nothing else.\
+"""
+
+
+# ── Checkpoint helpers ───────────────────────────────────────────────────────
+
+def load_checkpoint():
+    if os.path.exists(CHECKPOINT_FILE):
+        with open(CHECKPOINT_FILE) as f:
+            return json.load(f)
+    return {}
+
+
+def save_checkpoint(before_time):
+    with open(CHECKPOINT_FILE, "w") as f:
+        json.dump({"before_time": before_time}, f, indent=2)
 
 
 # ── Notion helpers ──────────────────────────────────────────────────────────
@@ -115,6 +172,33 @@ def get_recent_items(n):
     )
     r.raise_for_status()
     return r.json().get("results", [])
+
+
+def iter_items_from_checkpoint(before_time=None):
+    """Yield items in descending created_time order, starting before before_time if given."""
+    cursor = None
+    while True:
+        body = {
+            "page_size": 100,
+            "sorts": [{"timestamp": "created_time", "direction": "descending"}],
+        }
+        if before_time:
+            body["filter"] = {
+                "timestamp": "created_time",
+                "created_time": {"before": before_time},
+            }
+        if cursor:
+            body["start_cursor"] = cursor
+        r = requests.post(
+            f"https://api.notion.com/v1/databases/{COLLECTION_DB_ID}/query",
+            headers=NOTION_HEADERS, json=body,
+        )
+        r.raise_for_status()
+        d = r.json()
+        yield from d["results"]
+        if not d.get("has_more"):
+            break
+        cursor = d["next_cursor"]
 
 
 def get_brand_for_page(page):
@@ -225,7 +309,7 @@ def append_blocks_to_page(page_id, blocks):
 
 # ── Prompt ──────────────────────────────────────────────────────────────────
 
-def build_prompt(brand, item, era_context, page_description=""):
+def build_user_prompt(brand, item, era_context, page_description=""):
     details = []
     if item["year"]:
         details.append(f"year made: {item['year']}")
@@ -237,109 +321,28 @@ def build_prompt(brand, item, era_context, page_description=""):
 
     desc_block = ""
     if page_description.strip():
-        desc_block = f"""
-Existing description already recorded in the archive — use as ground truth for this piece's
-specific details (materials, construction, condition, style name, label, sizing, acquisition context):
----
-{page_description}
----
-"""
+        desc_block = (
+            "\nExisting description already recorded in the archive — use as ground truth for this piece's"
+            "\nspecific details (materials, construction, condition, style name, label, sizing, acquisition context):\n"
+            f"---\n{page_description}\n---\n"
+        )
 
-    return f"""You are writing a six-layer provenance and archive document for a single luxury fashion piece in a personal wardrobe collection.
-
-CRITICAL RULE: Every word must be about THIS SPECIFIC PIECE — this garment, this bag, this shoe.
-Do NOT describe the house's general output or other product categories. Stay within the world of this object.
-Be honest about what is confirmed versus approximate versus unknown — do not invent specifics.
-BANNED PHRASES: never write "quiet luxury" or any variation of it. Describe what the piece actually is.
-
-Brand: {brand}
-Item: {item["name"]}
-{details_str}
-{desc_block}
-Designer-era context (use only to date and contextualise — do not paste into output):
-{era_context}
-
----
-
-Return JSON with exactly seven keys. Each value is a plain string; separate paragraphs with \\n\\n.
-No bullet points inside values. No sub-headers inside values. Present tense where appropriate.
-
-"object_identity"
-  2–3 paragraphs. The piece itself, unambiguously identified:
-  — Maker, line/model name, colorway, size
-  — Specific materials: fabric composition or leather type, hardware finish, lining material,
-    date code (location and what it reads — if unknown or unread, say so explicitly)
-  — Production era: year or year range, country of manufacture
-  — Distinguishing physical details: stitching count per cm on main seams, hardware weight
-    and finish (palladium, gold, brass — and whether a magnet test has been done),
-    interior stamp placement, label typography. Flag anything unverified.
-
-"maker_context"
-  2 paragraphs. Why this piece matters relative to others from the same house:
-  — Who was creative director at time of production and what defined that era's output
-    for THIS garment/object category specifically
-  — What made this era's version different from earlier and later production
-  — What changed after — why the older version differs from what's sold today
-
-"authentication"
-  2–3 paragraphs. Proof the object is what it claims to be — model-specific, not brand-generic:
-  — How to authenticate THIS SPECIFIC MODEL: date code format and location for this line,
-    hardware tells unique to this model, stitching count, material characteristics
-  — Known fakes for this model — what they get wrong (wrong zipper pull weight, incorrect
-    stamp placement, hardware that doesn't hold a magnet, wrong fabric hand, shallow embossing)
-  — Condition assessment: honest grading of this specific piece — what is worn, what is
-    pristine, what shows age, what needs attention
-  — Authentication gaps: what can only be confirmed by physical inspection or trade document
-
-"ownership_history"
-  1–2 paragraphs. Where the piece has been. Be explicit about what is unknown:
-  — Original retail context: store type, approximate year of first sale, original retail
-    price range if known or estimable
-  — Subsequent ownership: what is known or can be inferred from condition, provenance
-    details, or acquisition context (estate, collector, first-generation owner, number of owners)
-  — Geographic and climate history if determinable from condition evidence
-  — Care and storage history based on what the current condition suggests
-  Incomplete is fine — say "unknown" rather than guessing.
-
-"market_context"
-  2 paragraphs. Where this piece sits in the current secondary market — specific, not vague:
-  — Current resale price range for THIS model and colorway specifically, not the brand in
-    general (cite approximate current range on Vestiaire, 1stDibs, or comparable platforms)
-  — Price trajectory: appreciating, stable, or declining — and why
-  — Rarity: how frequently this specific model and colorway surfaces on secondary market
-  — Comparable pieces: what else exists at this price and quality level, and why this is
-    or is not the better choice for a serious collector
-
-"wearability"
-  2 paragraphs. How this piece actually functions for a real woman — the layer no authentication
-  service or resale platform provides:
-  — Who it suits: body proportion this flatters, lifestyle and wardrobe profile it belongs in
-  — How it wears: weight, drape or structure, strap or closure handling, interior organisation
-  — What it resolves: 2–3 specific outfit contexts where this piece is the right answer
-  — What it fights with: wardrobe contexts where it doesn't work
-  — CPW potential: realistic estimate of how often a woman with the right wardrobe profile
-    would reach for it, and what determines that frequency
-
-"research_notes"
-  2 paragraphs. Research process summary:
-  — What was investigated, what is confirmed vs approximate vs uncertain
-  — What physical inspection or trade documentation would resolve the remaining gaps
-
-Total across all seven keys: 900–1400 words.
-Return only valid JSON, nothing else."""
+    return (
+        f"Brand: {brand}\n"
+        f"Item: {item['name']}\n"
+        f"{details_str}\n"
+        f"{desc_block}"
+        f"Designer-era context (use only to date and contextualise — do not paste into output):\n"
+        f"{era_context}"
+    )
 
 
 # ── Content generation ──────────────────────────────────────────────────────
 
 def generate_content(brand, item, page_description=""):
-    era_ctx = DESIGNER_ERAS.get(brand, "")
-    prompt  = build_prompt(brand, item, era_ctx, page_description)
-    msg     = claude.messages.create(
-        model="claude-opus-4-7",
-        max_tokens=4500,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    raw = msg.content[0].text.strip()
+    era_ctx  = DESIGNER_ERAS.get(brand, "")
+    user_msg = build_user_prompt(brand, item, era_ctx, page_description)
+    raw = claude.generate(SYSTEM_PROMPT, user_msg, max_tokens=1800)
     if raw.startswith("```"):
         raw = raw.split("```", 2)[1]
         if raw.startswith("json"):
@@ -386,29 +389,17 @@ def build_blocks(content):
         {"type": "divider", "divider": {}},
         h2(HERITAGE_MARKER),
     ]
-
     for key, label in [
-        ("object_identity",  "Layer 1 — Object Identity"),
-        ("maker_context",    "Layer 2 — Maker Context"),
-        ("authentication",   "Layer 3 — Authentication"),
-        ("ownership_history","Layer 4 — Ownership History"),
-        ("market_context",   "Layer 5 — Market Context"),
-        ("wearability",      "Layer 6 — Wearability"),
+        ("about_this_piece",    "About This Piece"),
+        ("design_language",     "Design Language"),
+        ("craft_and_materials", "Craft & Materials"),
+        ("historical_context",  "Historical Context"),
     ]:
         blocks.append(h3(label))
         for p in content.get(key, "").split("\n\n"):
             p = p.strip()
             if p:
                 blocks.append(para(p))
-
-    research_paras = [
-        p.strip()
-        for p in content.get("research_notes", "").split("\n\n")
-        if p.strip()
-    ]
-    if research_paras:
-        blocks.append(toggle("Research Notes", research_paras))
-
     return blocks
 
 
@@ -441,6 +432,8 @@ def main():
     parser = argparse.ArgumentParser(description="Write heritage notes to Notion collection pages")
     parser.add_argument("--force", metavar="PAGE_ID", help="Clear and rewrite one specific page")
     parser.add_argument("--recent", metavar="N", type=int, help="Process the N most recently added items")
+    parser.add_argument("--limit", metavar="N", type=int,
+                        help="Write up to N items in descending order, resuming from last checkpoint")
     args = parser.parse_args()
 
     written = skipped = errors = 0
@@ -448,20 +441,57 @@ def main():
     if args.force:
         raw_id = args.force.replace("-", "")
         force_page_id = f"{raw_id[:8]}-{raw_id[8:12]}-{raw_id[12:16]}-{raw_id[16:20]}-{raw_id[20:]}"
-        # Find the page across all designers
-        found = False
-        for brand, designer_id in TARGET_DESIGNERS.items():
-            for page in get_items_for_designer(designer_id):
-                if page["id"] == force_page_id:
-                    item = extract_item_details(page)
-                    print(f"\n  → {item['name']!r}  ({brand})")
-                    process_page(force_page_id, brand, item, force=True)
-                    found = True
-                    break
-            if found:
+        r = requests.get(
+            f"https://api.notion.com/v1/pages/{force_page_id}",
+            headers=NOTION_HEADERS,
+        )
+        r.raise_for_status()
+        page = r.json()
+        brand, _ = get_brand_for_page(page)
+        item = extract_item_details(page)
+        print(f"\n  → {item['name']!r}  ({brand})")
+        process_page(force_page_id, brand, item, force=True)
+        return
+
+    if args.limit:
+        checkpoint  = load_checkpoint()
+        before_time = checkpoint.get("before_time")
+        print(f"\nLimit mode: writing up to {args.limit} items (newest → oldest)")
+        if before_time:
+            print(f"  Resuming from checkpoint: items created before {before_time}")
+        else:
+            print("  No checkpoint found — starting from newest items")
+
+        last_time = before_time
+        for page in iter_items_from_checkpoint(before_time):
+            item_time = page.get("created_time")
+            # Advance checkpoint past this item before processing
+            if item_time:
+                last_time = item_time
+                save_checkpoint(item_time)
+
+            brand, _ = get_brand_for_page(page)
+            item = extract_item_details(page)
+            print(f"\n  → {item['name']!r}  ({brand})")
+            try:
+                result = process_page(page["id"], brand, item, force=False)
+                if result == "done":
+                    written += 1
+                else:
+                    skipped += 1
+                time.sleep(1)
+            except Exception as e:
+                print(f"     ERROR: {e}")
+                errors += 1
+                time.sleep(2)
+
+            if written >= args.limit:
                 break
-        if not found:
-            print(f"Page {force_page_id} not found in any TARGET_DESIGNER — cannot proceed")
+
+        print(f"\n{'='*60}")
+        print(f"Done. {written} written, {skipped} skipped, {errors} errors.")
+        if last_time:
+            print(f"Checkpoint: next run continues from before {last_time}")
         return
 
     if args.recent:
