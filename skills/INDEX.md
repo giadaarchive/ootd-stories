@@ -26,6 +26,7 @@ One task, one file. Every skill links to the script that executes it and the REA
 |-------|--------|---------|
 | [Write heritage notes](./heritage-notes.md) | `heritage.py` | New item added to collection |
 | [Run heritage audit](./heritage-audit.md) | `heritage_audit.py` | After heritage.py has run |
+| [Write brand heritage](./brand-heritage.md) | `brand_heritage.py` | New brand added, or brand page missing house history |
 | [Archive from YouTube video](./wardrobe-archive.md) | `wardrobe_archive.py` | Video recorded about a piece |
 
 ## OOTD & Publishing
