@@ -120,7 +120,7 @@ API property names, types, and IDs for all databases. Property names are case-se
 
 ## Designer Database
 
-**Database ID:** `18accd15-cda1-80ae-b0ec-e6bd60e4c4ed` *(query to confirm)*
+**Database ID:** `079fa275-238c-4427-94b5-2c0b0f485bf9`
 
 | API Key | Type | Notes |
 |---------|------|-------|

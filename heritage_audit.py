@@ -71,6 +71,40 @@ def get_items_for_designer(designer_id):
     return pages
 
 
+def get_recent_items(n):
+    """Fetch the N most recently created items from the collection DB."""
+    r = requests.post(
+        f"https://api.notion.com/v1/databases/{COLLECTION_DB_ID}/query",
+        headers=NOTION_HEADERS,
+        json={
+            "page_size": n,
+            "sorts": [{"timestamp": "created_time", "direction": "descending"}],
+        },
+    )
+    r.raise_for_status()
+    return r.json().get("results", [])
+
+
+def get_brand_for_page(page):
+    """Return brand name by matching Designer relation to TARGET_DESIGNERS, else fetch from Notion."""
+    designer_rel = page.get("properties", {}).get("Designer", {}).get("relation", [])
+    for rel in designer_rel:
+        rel_id = rel.get("id", "").replace("-", "")
+        for brand, did in TARGET_DESIGNERS.items():
+            if rel_id == did.replace("-", ""):
+                return brand
+    # Not in TARGET_DESIGNERS — fetch the designer page title from Notion
+    if designer_rel:
+        did = designer_rel[0].get("id", "")
+        r = requests.get(f"https://api.notion.com/v1/pages/{did}", headers=NOTION_HEADERS)
+        if r.status_code == 200:
+            props = r.json().get("properties", {})
+            title_prop = next((v for v in props.values() if v.get("type") == "title"), None)
+            if title_prop and title_prop.get("title"):
+                return title_prop["title"][0].get("plain_text", "Unknown")
+    return "Unknown"
+
+
 def extract_item_details(page):
     props = page["properties"]
     title_prop = next((v for v in props.values() if v.get("type") == "title"), None)
@@ -400,8 +434,37 @@ def process_item(brand, page):
 
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="Audit and fact-check heritage notes on collection item pages")
+    parser.add_argument("--recent", metavar="N", type=int, help="Audit the N most recently added items (all brands)")
+    args = parser.parse_args()
+
     total_done = total_skipped = total_errors = 0
 
+    if args.recent:
+        print(f"\nFetching {args.recent} most recently added items...")
+        pages = get_recent_items(args.recent)
+        print(f"  {len(pages)} items retrieved\n")
+        for page in pages:
+            brand = get_brand_for_page(page)
+            item = extract_item_details(page)
+            print(f"\n  → {item['name']!r}  ({brand})")
+            try:
+                result = process_item(brand, page)
+                if result == "done":
+                    total_done += 1
+                else:
+                    total_skipped += 1
+                time.sleep(1)
+            except Exception as e:
+                print(f"     ERROR: {e}")
+                total_errors += 1
+                time.sleep(2)
+        print(f"\n{'='*60}")
+        print(f"Done. {total_done} audited, {total_skipped} skipped, {total_errors} errors.")
+        return
+
+    # Default: process all TARGET_DESIGNERS
     for brand, designer_id in TARGET_DESIGNERS.items():
         print(f"\n{'='*60}")
         print(f"  {brand}")
