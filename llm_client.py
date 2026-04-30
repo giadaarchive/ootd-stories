@@ -33,15 +33,15 @@ class LLMClient:
         """Detect available provider in priority order: Qwen > Anthropic > MiniMax.
         Validates key format before selecting."""
         
-        # Qwen first (user's current preference) - key format: sk-xxxxxxxx
-        if self.qwen_key and self.qwen_key.strip().startswith("sk-"):
+        # Qwen first (user's current preference) - key format: sk-xxxxx (40+ chars)
+        if self.qwen_key and self.qwen_key.strip().startswith("sk-") and len(self.qwen_key.strip()) >= 40:
             self.provider = "qwen"
             self.model = "qwen-plus"
             print(f"[LLM] Using Qwen ({self.model})")
             return
         
-        # Anthropic - key format: sk-ant-xxx
-        if self.anthropic_key and self.anthropic_key.strip().startswith("sk-ant-"):
+        # Anthropic - key format: sk-ant-xxx (100+ chars)
+        if self.anthropic_key and self.anthropic_key.strip().startswith("sk-ant-") and len(self.anthropic_key.strip()) >= 100:
             self.provider = "anthropic"
             self.model = "claude-sonnet-4-20240514"
             print(f"[LLM] Using Anthropic ({self.model})")
@@ -55,7 +55,10 @@ class LLMClient:
             return
         
         raise RuntimeError(
-            "No valid LLM API key found. Set one of: QWEN_API_KEY (sk-...), ANTHROPIC_API_KEY (sk-ant-...), MINIMAX_API_KEY"
+            "No valid LLM API key found. "
+            f"QWEN: {len(self.qwen_key or '')} chars (need 40+), "
+            f"ANTHROPIC: {len(self.anthropic_key or '')} chars (need 100+), "
+            f"MINIMAX: {'set' if self.minimax_key else 'not set'}"
         )
     
     def generate(self, system_prompt, user_prompt, max_tokens=1800):
