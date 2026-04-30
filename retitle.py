@@ -191,8 +191,8 @@ def update_title(page_id, new_title):
         headers=NOTION_HEADERS,
         json={
             "properties": {
-                "Second best": {
-                    "title": [{"type": "text", "text": {"content": new_title}}]
+                "Shop Title": {
+                    "rich_text": [{"type": "text", "text": {"content": new_title}}]
                 }
             }
         },
