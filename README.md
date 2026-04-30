@@ -63,7 +63,23 @@ print('OK' if r.status_code == 200 else f'FAIL: {r.status_code}')
 
 ## System overview
 
-Notion-backed collection management, publishing, and research system. Six databases wired together:
+### Repo architecture
+
+```
+Notion (source of truth)
+    │
+    ├── lookbook-stories (this repo) ──► generates heritage notes, OOTD stories → writes back to Notion
+    │       │
+    │       └── llm.py (Anthropic + OpenRouter) — shared LLM client
+    │
+    └── giadaarchive-shop ──► reads Notion at build time → renders shop pages on Vercel
+            │
+            └── images hosted here (main branch, raw.githubusercontent.com)
+```
+
+**Related repos:** `giadaarchive/shop` (Next.js storefront) · `giadaarchive/writelikeL` (voice/tone guide) · `giadaarchive/behindthecultured` (brand strategy)
+
+### Notion databases wired together
 
 ```
 WARDROBE ITEMS  ←→  DESIGNER          (brand codes, SKU prefixes)
