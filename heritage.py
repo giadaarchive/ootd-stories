@@ -268,57 +268,30 @@ def delete_heritage_blocks(page_id):
     return deleted
 
 
-BOILERPLATE_KEYWORDS = [
-    # Japanese resale structure
-    'Made in Italy', 'Made in Japan', 'Management number', 'Condition:', 'Rank:',
-    'Shipping included', 'Category:', 'Strap length:', 'Interior:', 'Dimensions:',
-    'Brand:', 'Sold via', 'Self-standing', '2WAY', 'Hand/Shoulder',
-    'Manufacturer:', 'Accessories: None', 'Color (pattern)',
-    'also sold in-store', 'color may differ', 'Free Shipping',
-    # Condition language
-    'Minor surface scratch', 'Very good condition', 'signs of use',
-    'excellent used condition', 'used condition', 'good condition',
-    'no particular', 'no noticeable',
-    # Auction/listing context
-    'auction listing', 'Yahoo Japan', 'auction has ended', 'The auction',
-    'listed under', 'listed on',
-    '美品', '良品', '中古', 'ヤフオク',
-    # Resale serial / measurement markers
-    'Nº ', 'nº ', 'Serial', 'W19cm', 'W18cm', 'W20cm',
-]
-
-BOILERPLATE_HEADINGS = {'description', 'details', 'item details', 'product description', 'listing'}
-
-
 def clean_boilerplate_blocks(page_id):
-    """Delete Description headings, raw listing paragraphs, and extra dividers before Heritage."""
+    """Delete every non-image block before Heritage & House Notes.
+
+    Page body rule: images only before Heritage. Everything else — raw listing
+    text, research notes, price estimates, tables, headings, dividers — gets
+    removed. Heritage section itself is untouched.
+    """
     blocks = get_all_blocks(page_id)
     to_delete = []
-    dividers = []
 
     for b in blocks:
         btype = b['type']
         tx = block_text(b)
         if btype == 'heading_2' and HERITAGE_MARKER in tx:
             break
-        if btype == 'heading_3' and tx.strip().lower() in BOILERPLATE_HEADINGS:
+        if btype != 'image':
             to_delete.append(b['id'])
-        elif btype == 'paragraph' and any(kw in tx for kw in BOILERPLATE_KEYWORDS):
-            to_delete.append(b['id'])
-        elif btype == 'divider':
-            dividers.append(b['id'])
 
-    # Keep at most 1 divider before Heritage; delete extras
-    if len(dividers) > 1:
-        to_delete.extend(dividers[:-1])
-
-    unique = list(dict.fromkeys(to_delete))
-    for bid in unique:
-        r = requests.delete(f"https://api.notion.com/v1/blocks/{bid}", headers=NOTION_HEADERS)
-        time.sleep(0.2)
-    if unique:
-        print(f"     Cleaned {len(unique)} boilerplate block(s)")
-    return len(unique)
+    for bid in to_delete:
+        requests.delete(f"https://api.notion.com/v1/blocks/{bid}", headers=NOTION_HEADERS)
+        time.sleep(0.15)
+    if to_delete:
+        print(f"     Cleaned {len(to_delete)} non-image block(s) before Heritage")
+    return len(to_delete)
 
 
 def extract_item_details(page):
