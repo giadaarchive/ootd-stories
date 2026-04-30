@@ -19,7 +19,7 @@ import os
 import time
 import requests
 from dotenv import load_dotenv
-from llm_client import LLMClient
+import llm as llm_module
 
 load_dotenv()
 
@@ -44,7 +44,8 @@ HERITAGE_MARKER      = "Heritage & House Notes"
 CRAFT_MARKER         = "Craft & Materials"
 VERIFICATION_MARKER  = "Verification & Sources"
 
-claude = LLMClient()  # Auto-detects provider: Qwen, Anthropic, or MiniMax
+DEFAULT_MODEL = llm_module.DEFAULT_MODEL
+MODEL_ALIASES = llm_module.MODEL_ALIASES
 
 
 # ── Notion helpers ──────────────────────────────────────────────────────────
@@ -144,6 +145,53 @@ def block_plain_text(block):
     return "".join(x.get("plain_text", "") for x in rt)
 
 
+BOILERPLATE_KEYWORDS = [
+    'Made in Italy', 'Made in Japan', 'Management number', 'Condition:', 'Rank:',
+    'Shipping included', 'Category:', 'Strap length:', 'Interior:', 'Dimensions:',
+    'Brand:', 'Sold via', 'Self-standing', '2WAY', 'Hand/Shoulder',
+    'Manufacturer:', 'Accessories: None', 'Color (pattern)',
+    'also sold in-store', 'color may differ', 'Free Shipping',
+    'Minor surface scratch', 'Very good condition', 'signs of use',
+    'excellent used condition', 'used condition', 'good condition',
+    'no particular', 'no noticeable',
+    'auction listing', 'Yahoo Japan', 'auction has ended', 'The auction',
+    'listed under', 'listed on',
+    '美品', '良品', '中古', 'ヤフオク',
+    'Nº ', 'nº ', 'Serial',
+]
+BOILERPLATE_HEADINGS = {'description', 'details', 'item details', 'product description', 'listing'}
+
+
+def clean_boilerplate_blocks(page_id):
+    """Delete Description headings, raw listing paragraphs, and extra dividers before Heritage."""
+    blocks = get_page_blocks(page_id)
+    to_delete = []
+    dividers = []
+
+    for b in blocks:
+        btype = b['type']
+        tx = block_plain_text(b)
+        if btype == 'heading_2' and HERITAGE_MARKER in tx:
+            break
+        if btype == 'heading_3' and tx.strip().lower() in BOILERPLATE_HEADINGS:
+            to_delete.append(b['id'])
+        elif btype == 'paragraph' and any(kw in tx for kw in BOILERPLATE_KEYWORDS):
+            to_delete.append(b['id'])
+        elif btype == 'divider':
+            dividers.append(b['id'])
+
+    if len(dividers) > 1:
+        to_delete.extend(dividers[:-1])
+
+    unique = list(dict.fromkeys(to_delete))
+    for bid in unique:
+        requests.delete(f"https://api.notion.com/v1/blocks/{bid}", headers=NOTION_HEADERS)
+        time.sleep(0.2)
+    if unique:
+        print(f"     Cleaned {len(unique)} boilerplate block(s)")
+    return len(unique)
+
+
 def page_has_section(blocks, marker):
     for b in blocks:
         if b.get("type") in ("heading_2", "heading_3"):
@@ -218,38 +266,14 @@ Item: {item_name}
 Year made: {year}
 Material noted: {material}
 
-Write a "Craft & Materials" section for this specific piece — 2-3 paragraphs of precise
-technical and construction detail. Cover all that apply:
+Write 2–3 paragraphs on how this specific piece is made and what it is made of.
+Cover: exact material names (leather grade, silk momme, fabric composition), construction
+method (saddle stitch, Blake stitch, Goodyear welt, hand-welted, screen-printed, etc.),
+hardware finish, lining, edge treatment. Where exact piece details are unconfirmed, note
+it as typical for the house/era rather than stating it as fact.
 
-Leather goods / bags / shoes:
-  Exact leather name (Togo, Clemence, Box calf, Barenia, Epsom, Swift, Veau Naturelle, etc.),
-  tannery if known (e.g. Hermès's own Cuir Précieux tannery, Haas Mégisserie, Weinheimer),
-  tanning method (full vegetable-tan, chrome-free, semi-vegetable),
-  stitching technique (saddle stitch — two needles, waxed linen thread, ~5 stitches per cm —
-  vs machine stitch), thread material and colour, edge treatment (hand-painted in multiple
-  lacquer coats, burnished raw edge, wax finish), hardware metal and plating (palladium over
-  brass, 24k gold over brass), lining material (chevre goatskin, lambskin, toile H, cotton
-  canvas), overall construction approach (hand-built by a single artisan, bench-made, etc.).
-
-Shoes specifically:
-  Construction method (Blake stitch, Goodyear welt, hand-welted, cemented/glued),
-  heel height and material, last name if known, sole material (full leather, rubber,
-  combination), any signature Ferragamo/Hermès/LV/Chanel/Dior/Burberry construction notes.
-
-Scarves / silk accessories:
-  Silk weight in momme, fibre source (Maison Lesage, Lyonnais mills, etc.), weave type,
-  printing method (hand screen-printed in Lyon, number of colour screens typical for this
-  house), hem finish (hand-rolled and whip-stitched vs machine-rolled), dimensions.
-
-Clothing:
-  Fabric composition and weave, any canvassing or interlining, construction quality markers
-  (hand-sewn seams, pick-stitching, horn buttons, floating canvas, brioche fabric, etc.).
-
-If a specific detail is not confirmed for this exact piece, note it as "typical for the
-house/era" rather than stating it as absolute fact.
-
-Return only a JSON object with one key: "craft_details" (string, paragraphs joined by \\n\\n).
-No bullet points. No markdown. Plain paragraphs only. 200-300 words."""
+Return JSON with one key: "craft_details" (string, paragraphs joined by \\n\\n).
+200–300 words. No bullets, no markdown."""
 
 
 AUDIT_PROMPT = """You are a luxury fashion fact-checker and archival researcher.
@@ -300,24 +324,29 @@ Return ONLY valid JSON:
 
 # ── Generation functions ────────────────────────────────────────────────────
 
-def generate_craft_details(brand, item):
-    prompt = CRAFT_PROMPT.format(
-        brand=brand,
-        item_name=item["name"],
-        year=item["year"] or "unknown",
-        material=item["material"] or "unknown",
-    )
-    raw = claude.generate("You are writing craft and material notes for a luxury fashion archive.", prompt, max_tokens=800)
+def _call(system, user, max_tokens, model=DEFAULT_MODEL):
+    raw = llm_module.call(system, user, max_tokens=max_tokens, model=model)
     if raw.startswith("```"):
         raw = raw.split("```", 2)[1]
         if raw.startswith("json"):
             raw = raw[4:]
         raw = raw.rsplit("```", 1)[0].strip()
+    return raw
+
+
+def generate_craft_details(brand, item, model=DEFAULT_MODEL):
+    user = CRAFT_PROMPT.format(
+        brand=brand,
+        item_name=item["name"],
+        year=item["year"] or "unknown",
+        material=item["material"] or "unknown",
+    )
+    raw = _call("You are writing craft and material notes for a luxury fashion archive.", user, max_tokens=800, model=model)
     return json.loads(raw)["craft_details"]
 
 
-def generate_audit(brand, item, design_language, this_piece, craft_details):
-    prompt = AUDIT_PROMPT.format(
+def generate_audit(brand, item, design_language, this_piece, craft_details, model=DEFAULT_MODEL):
+    user = AUDIT_PROMPT.format(
         brand=brand,
         item_name=item["name"],
         year=item["year"] or "unknown",
@@ -325,12 +354,7 @@ def generate_audit(brand, item, design_language, this_piece, craft_details):
         this_piece=this_piece or "(not available)",
         craft_details=craft_details or "(not available)",
     )
-    raw = claude.generate("You are a luxury fashion fact-checker and archival researcher. Return ONLY valid JSON.", prompt, max_tokens=1800)
-    if raw.startswith("```"):
-        raw = raw.split("```", 2)[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-        raw = raw.rsplit("```", 1)[0].strip()
+    raw = _call("You are a luxury fashion fact-checker and archival researcher. Return ONLY valid JSON.", user, max_tokens=1800, model=model)
     return json.loads(raw)
 
 
@@ -381,9 +405,13 @@ ALL_SECTION_MARKERS = [
 ]
 
 
-def process_item(brand, page):
+def process_item(brand, page, model=DEFAULT_MODEL):
     item     = extract_item_details(page)
     page_id  = page["id"]
+
+    # Always clean boilerplate before any other operation
+    clean_boilerplate_blocks(page_id)
+
     blocks   = get_page_blocks(page_id)
 
     if not page_has_section(blocks, HERITAGE_MARKER):
@@ -404,7 +432,7 @@ def process_item(brand, page):
     # Add Craft & Materials if missing (old heritage.py didn't include it)
     if not page_has_section(blocks, CRAFT_MARKER):
         print("     Generating Craft & Materials...")
-        craft_text = generate_craft_details(brand, item)
+        craft_text = generate_craft_details(brand, item, model=model)
         new_blocks += build_craft_blocks(craft_text)
         craft_existing = craft_text
         time.sleep(0.5)
@@ -413,7 +441,7 @@ def process_item(brand, page):
 
     # Always add Verification & Sources
     print("     Generating Verification & Sources...")
-    audit = generate_audit(brand, item, design_language, this_piece, craft_existing)
+    audit = generate_audit(brand, item, design_language, this_piece, craft_existing, model=model)
     new_blocks += build_verification_blocks(audit)
 
     if new_blocks:
@@ -427,7 +455,12 @@ def main():
     import argparse
     parser = argparse.ArgumentParser(description="Audit and fact-check heritage notes on collection item pages")
     parser.add_argument("--recent", metavar="N", type=int, help="Audit the N most recently added items (all brands)")
+    parser.add_argument("--model", metavar="MODEL", default=DEFAULT_MODEL,
+                        help=f"Model to use. Aliases: sonnet, haiku, opus. Default: {DEFAULT_MODEL}")
     args = parser.parse_args()
+
+    model = MODEL_ALIASES.get(args.model, args.model)
+    print(f"Model: {model}")
 
     total_done = total_skipped = total_errors = 0
 
@@ -440,7 +473,7 @@ def main():
             item = extract_item_details(page)
             print(f"\n  → {item['name']!r}  ({brand})")
             try:
-                result = process_item(brand, page)
+                result = process_item(brand, page, model=model)
                 if result == "done":
                     total_done += 1
                 else:
@@ -467,7 +500,7 @@ def main():
             item = extract_item_details(page)
             print(f"\n  → {item['name']!r}")
             try:
-                result = process_item(brand, page)
+                result = process_item(brand, page, model=model)
                 if result == "done":
                     total_done += 1
                 else:

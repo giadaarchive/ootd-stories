@@ -120,12 +120,27 @@ See [`heritage-notes.md`](./heritage-notes.md).
 
 ---
 
+## What goes on the page body
+
+**Only images.** Nothing else before the Heritage section.
+
+| Allowed | Banned |
+|---|---|
+| Images (rehosted on GitHub) | Raw listing/auction text as a paragraph |
+| Heritage & House Notes (added by heritage.py) | "Description" heading + paragraph |
+| | Condition grades: "excellent used condition", "美品", "Rank B" |
+| | Auction context: "listed on Yahoo Japan", "auction has ended" |
+| | Japanese resale boilerplate of any kind |
+
+Do NOT paste the listing description into the page body. The listing text is used as context when generating heritage notes, but it must never be written as a block on the page.
+
 ## Outputs
 
 - New page in `L's Collection of Amazing Pieces` (`ad079964969043ae9fa85a4f3ca1a9ee`)
 - Page icon set to first image
-- Images, description, material, colour, dimensions populated
-- Designer relation linked
+- Images (rehosted to public GitHub) added above Heritage section
+- Properties populated: material, colour, dimensions, Designer relation
+- **No raw description text block**
 
 ---
 

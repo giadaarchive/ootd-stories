@@ -268,6 +268,59 @@ def delete_heritage_blocks(page_id):
     return deleted
 
 
+BOILERPLATE_KEYWORDS = [
+    # Japanese resale structure
+    'Made in Italy', 'Made in Japan', 'Management number', 'Condition:', 'Rank:',
+    'Shipping included', 'Category:', 'Strap length:', 'Interior:', 'Dimensions:',
+    'Brand:', 'Sold via', 'Self-standing', '2WAY', 'Hand/Shoulder',
+    'Manufacturer:', 'Accessories: None', 'Color (pattern)',
+    'also sold in-store', 'color may differ', 'Free Shipping',
+    # Condition language
+    'Minor surface scratch', 'Very good condition', 'signs of use',
+    'excellent used condition', 'used condition', 'good condition',
+    'no particular', 'no noticeable',
+    # Auction/listing context
+    'auction listing', 'Yahoo Japan', 'auction has ended', 'The auction',
+    'listed under', 'listed on',
+    '美品', '良品', '中古', 'ヤフオク',
+    # Resale serial / measurement markers
+    'Nº ', 'nº ', 'Serial', 'W19cm', 'W18cm', 'W20cm',
+]
+
+BOILERPLATE_HEADINGS = {'description', 'details', 'item details', 'product description', 'listing'}
+
+
+def clean_boilerplate_blocks(page_id):
+    """Delete Description headings, raw listing paragraphs, and extra dividers before Heritage."""
+    blocks = get_all_blocks(page_id)
+    to_delete = []
+    dividers = []
+
+    for b in blocks:
+        btype = b['type']
+        tx = block_text(b)
+        if btype == 'heading_2' and HERITAGE_MARKER in tx:
+            break
+        if btype == 'heading_3' and tx.strip().lower() in BOILERPLATE_HEADINGS:
+            to_delete.append(b['id'])
+        elif btype == 'paragraph' and any(kw in tx for kw in BOILERPLATE_KEYWORDS):
+            to_delete.append(b['id'])
+        elif btype == 'divider':
+            dividers.append(b['id'])
+
+    # Keep at most 1 divider before Heritage; delete extras
+    if len(dividers) > 1:
+        to_delete.extend(dividers[:-1])
+
+    unique = list(dict.fromkeys(to_delete))
+    for bid in unique:
+        r = requests.delete(f"https://api.notion.com/v1/blocks/{bid}", headers=NOTION_HEADERS)
+        time.sleep(0.2)
+    if unique:
+        print(f"     Cleaned {len(unique)} boilerplate block(s)")
+    return len(unique)
+
+
 def extract_item_details(page):
     props = page["properties"]
     title_prop = next((v for v in props.values() if v.get("type") == "title"), None)
@@ -420,6 +473,9 @@ def process_page(page_id, brand, item, force=False, model=DEFAULT_MODEL):
     page_description = read_page_description(page_id)
     if page_description:
         print(f"     Found {len(page_description.splitlines())} lines of existing description")
+
+    # Always clean boilerplate — raw listing text must never stay on the page
+    clean_boilerplate_blocks(page_id)
 
     if force:
         deleted = delete_heritage_blocks(page_id)

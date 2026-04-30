@@ -28,13 +28,22 @@ Default: `claude-sonnet-4-6`
 - NEVER write "quiet luxury"
 - Content is about THIS SPECIFIC PIECE — not generic house history
 
-## Banned source content (Japanese resale boilerplate — ignore entirely)
-Notion pages often contain raw copy-paste from Yahoo Japan / Mercari. Strip and ignore:
-- Dimensions in W/H/D format, weight in grams
-- Condition rank labels: "Rank: B", "Rank: S", etc.
+## Page body — what is allowed vs banned
+
+**Allowed on a collection item page body:**
+- Images (rehosted to `giadaarchive/collection-images` public repo)
+- Heritage & House Notes section (4 sections, written by `heritage.py`)
+
+**Banned — never write these blocks to a Notion page:**
+- `Description` heading or any paragraph with raw listing text
+- Condition language: "excellent used condition", "美品", "Rank B/S/A", "signs of use"
+- Auction context: "listed on Yahoo Japan", "auction has ended", "listed under women's tops category"
+- Japanese resale boilerplate: dimensions in W/H/D, weight in grams, management numbers
 - Field labels: "Manufacturer:", "Accessories: None", "Design:", "Color (pattern) system:"
 - Disclaimers: "color may differ from photo", "also sold in-store", "may already be sold"
 - Any Japanese resale site formatting or language
+
+The listing text is used ONLY as input context for heritage.py — it is never written to the page.
 
 ## Cron jobs (recreate each session — they die on restart)
 ```bash

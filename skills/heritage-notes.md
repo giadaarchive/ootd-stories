@@ -65,9 +65,19 @@ The script reads the page body above the Heritage section as context. The richer
 
 ---
 
+## What must NOT appear on the page
+
+Before running `heritage.py`, check that the page body contains only images. Delete any of the following before (or after) the Heritage section:
+
+- `Description` heading + paragraph with raw listing text
+- Any paragraph reproducing Yahoo Japan / Mercari copy: condition grades, dimensions, auction context ("auction has ended", "listed under women's tops", "美品"), shipping notes, management numbers
+- Standalone paragraphs that read like a product listing rather than editorial content
+
+If you see these blocks: delete them in Notion, then rerun `heritage.py --force <page_id>`.
+
 ## What the script writes
 
-Four labelled sections under a `Heritage & House Notes` heading:
+Four labelled sections under a `Heritage & House Notes` heading — and nothing else:
 
 | Section heading | Content |
 |---|---|

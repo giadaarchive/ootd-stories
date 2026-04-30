@@ -31,6 +31,55 @@ NOTION_HEADERS   = {
 DEFAULT_MODEL = llm_module.DEFAULT_MODEL
 MODEL_ALIASES = llm_module.MODEL_ALIASES
 
+BOILERPLATE_KEYWORDS = [
+    'Made in Italy', 'Made in Japan', 'Management number', 'Condition:', 'Rank:',
+    'Shipping included', 'Category:', 'Strap length:', 'Interior:', 'Dimensions:',
+    'Brand:', 'Sold via', 'Self-standing', '2WAY', 'Hand/Shoulder',
+    'Manufacturer:', 'Accessories: None', 'Color (pattern)',
+    'also sold in-store', 'color may differ', 'Free Shipping',
+    'Minor surface scratch', 'Very good condition', 'signs of use',
+    'excellent used condition', 'used condition', 'good condition',
+    'no particular', 'no noticeable',
+    'auction listing', 'Yahoo Japan', 'auction has ended', 'The auction',
+    'listed under', 'listed on',
+    '美品', '良品', '中古', 'ヤフオク',
+    'Nº ', 'nº ', 'Serial',
+]
+BOILERPLATE_HEADINGS = {'description', 'details', 'item details', 'product description', 'listing'}
+HERITAGE_MARKER = "Heritage & House Notes"
+
+
+def clean_boilerplate_blocks(page_id):
+    """Delete Description headings and raw listing paragraphs before the Heritage section."""
+    raw_id = page_id.replace("-", "")
+    pid = f"{raw_id[:8]}-{raw_id[8:12]}-{raw_id[12:16]}-{raw_id[16:20]}-{raw_id[20:]}"
+    r = requests.get(f"https://api.notion.com/v1/blocks/{pid}/children", headers=NOTION_HEADERS)
+    if r.status_code != 200:
+        return 0
+    blocks = r.json().get("results", [])
+    to_delete, dividers = [], []
+    for b in blocks:
+        btype = b["type"]
+        rt = b.get(btype, {}).get("rich_text", [])
+        tx = "".join(x.get("plain_text", "") for x in rt)
+        if btype == "heading_2" and HERITAGE_MARKER in tx:
+            break
+        if btype == "heading_3" and tx.strip().lower() in BOILERPLATE_HEADINGS:
+            to_delete.append(b["id"])
+        elif btype == "paragraph" and any(kw in tx for kw in BOILERPLATE_KEYWORDS):
+            to_delete.append(b["id"])
+        elif btype == "divider":
+            dividers.append(b["id"])
+    if len(dividers) > 1:
+        to_delete.extend(dividers[:-1])
+    unique = list(dict.fromkeys(to_delete))
+    for bid in unique:
+        requests.delete(f"https://api.notion.com/v1/blocks/{bid}", headers=NOTION_HEADERS)
+        time.sleep(0.2)
+    if unique:
+        print(f"     Cleaned {len(unique)} boilerplate block(s)")
+    return len(unique)
+
 
 # ── Prompts ──────────────────────────────────────────────────────────────────
 
@@ -181,6 +230,9 @@ def retitle(page, model=DEFAULT_MODEL, dry_run=False):
     if not current:
         print("     No title — skipping")
         return "skipped"
+
+    if not dry_run:
+        clean_boilerplate_blocks(page["id"])
 
     desc = read_description(page["id"])
 
