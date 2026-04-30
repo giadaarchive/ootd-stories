@@ -125,3 +125,13 @@ for pid in PAGE_IDS:
 **Cause:** The `--context` text was too vague for Claude to match confidently.
 
 **Fix:** Delete the incorrectly applied tags from the Notion item. Re-run with a more specific `--context` string, or manually set the `Why I own it` tags in Notion.
+
+---
+
+## Heritage notes reproducing Japanese resale listing boilerplate
+
+**Symptom:** Heritage output includes raw copy-paste from Yahoo Japan / Mercari: dimensions in W/H/D format, weight in grams, condition rank (Rank: B), field labels ("Manufacturer:", "Accessories: None", "Color (pattern) system:"), or disclaimers ("color may differ", "also sold in-store").
+
+**Cause:** Notion page body contains unedited resale listing text. The heritage script reads this as context and may reproduce or reference it.
+
+**Fix:** The `SYSTEM_PROMPT` in `heritage.py` now explicitly bans this content. If it still appears, clean the Notion page body — remove the raw listing block and replace with a plain description of the piece — then re-run with `--force <page_id>`.

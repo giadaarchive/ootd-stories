@@ -17,7 +17,7 @@ import sys
 import json
 import time
 from dotenv import load_dotenv
-from llm_client import LLMClient
+import llm as llm_module
 
 load_dotenv()
 
@@ -28,8 +28,6 @@ NOTION_HEADERS   = {
     "Notion-Version": "2022-06-28",
     "Content-Type": "application/json",
 }
-
-claude = LLMClient()  # Auto-detects provider: Qwen, Anthropic, or MiniMax
 
 TARGET_DESIGNERS = {
     "Hermès":              "2b9ccd15-cda1-80fe-9888-dabde81bb8b1",
@@ -79,7 +77,9 @@ DESIGNER_ERAS = {
 
 HERITAGE_MARKER  = "Heritage & House Notes"
 CHECKPOINT_FILE  = os.path.join(os.path.dirname(os.path.abspath(__file__)), "heritage_checkpoint.json")
-claude           = anthropic.Anthropic()
+
+DEFAULT_MODEL = llm_module.DEFAULT_MODEL
+MODEL_ALIASES = llm_module.MODEL_ALIASES
 
 SYSTEM_PROMPT = """\
 You are writing a heritage document for a single luxury fashion piece in a personal archive collection.
@@ -89,6 +89,12 @@ Write for someone who already knows the brand. They want to understand this piec
 Do NOT mention: retail prices, retailers, where to buy, resale value, market context,
 authentication, ownership history, purchase details, or previous owners.
 BANNED: never write "quiet luxury" or any variation. Describe what the piece actually is.
+
+IGNORE completely — do not reproduce or reference:
+- Resale listing boilerplate: dimensions in W/H/D format, weight in grams, "Rank: A/B/C/S" condition grades
+- Disclaimers ("color may differ from photo", "also sold in-store", "may already be sold")
+- Listing field labels: "Manufacturer:", "Accessories: None", "Design:", "Color (pattern) system:"
+- Japanese resale site formatting or language
 
 Return JSON with exactly four keys. Each value is a plain string; separate paragraphs with \\n\\n.
 No bullet points or sub-headers inside values.
@@ -339,10 +345,10 @@ def build_user_prompt(brand, item, era_context, page_description=""):
 
 # ── Content generation ──────────────────────────────────────────────────────
 
-def generate_content(brand, item, page_description=""):
+def generate_content(brand, item, page_description="", model=DEFAULT_MODEL):
     era_ctx  = DESIGNER_ERAS.get(brand, "")
     user_msg = build_user_prompt(brand, item, era_ctx, page_description)
-    raw = claude.generate(SYSTEM_PROMPT, user_msg, max_tokens=1800)
+    raw = llm_module.call(SYSTEM_PROMPT, user_msg, max_tokens=1800, model=model)
     if raw.startswith("```"):
         raw = raw.split("```", 2)[1]
         if raw.startswith("json"):
@@ -405,7 +411,7 @@ def build_blocks(content):
 
 # ── Main ────────────────────────────────────────────────────────────────────
 
-def process_page(page_id, brand, item, force=False):
+def process_page(page_id, brand, item, force=False, model=DEFAULT_MODEL):
     if not force and page_has_heritage_content(page_id):
         print("     Already has archive notes — skipping")
         return "skipped"
@@ -420,7 +426,7 @@ def process_page(page_id, brand, item, force=False):
         print(f"     Cleared {deleted} existing blocks")
 
     print("     Generating archive notes...")
-    content = generate_content(brand, item, page_description)
+    content = generate_content(brand, item, page_description, model=model)
     blocks  = build_blocks(content)
     append_blocks_to_page(page_id, blocks)
     print(f"     Written ({len(blocks)} blocks)")
@@ -434,7 +440,12 @@ def main():
     parser.add_argument("--recent", metavar="N", type=int, help="Process the N most recently added items")
     parser.add_argument("--limit", metavar="N", type=int,
                         help="Write up to N items in descending order, resuming from last checkpoint")
+    parser.add_argument("--model", metavar="MODEL", default=DEFAULT_MODEL,
+                        help=f"Model to use. Aliases: sonnet, haiku, opus. Default: {DEFAULT_MODEL}")
     args = parser.parse_args()
+
+    model = MODEL_ALIASES.get(args.model, args.model)
+    print(f"Model: {model}")
 
     written = skipped = errors = 0
 
@@ -450,7 +461,7 @@ def main():
         brand, _ = get_brand_for_page(page)
         item = extract_item_details(page)
         print(f"\n  → {item['name']!r}  ({brand})")
-        process_page(force_page_id, brand, item, force=True)
+        process_page(force_page_id, brand, item, force=True, model=model)
         return
 
     if args.limit:
@@ -474,7 +485,7 @@ def main():
             item = extract_item_details(page)
             print(f"\n  → {item['name']!r}  ({brand})")
             try:
-                result = process_page(page["id"], brand, item, force=False)
+                result = process_page(page["id"], brand, item, force=False, model=model)
                 if result == "done":
                     written += 1
                 else:
@@ -503,7 +514,7 @@ def main():
             item = extract_item_details(page)
             print(f"\n  → {item['name']!r}  ({brand})")
             try:
-                result = process_page(page["id"], brand, item, force=False)
+                result = process_page(page["id"], brand, item, force=False, model=model)
                 if result == "done":
                     written += 1
                 else:
@@ -532,7 +543,7 @@ def main():
             print(f"\n  → {item['name']!r}")
 
             try:
-                result = process_page(page_id, brand, item, force=False)
+                result = process_page(page_id, brand, item, force=False, model=model)
                 if result == "done":
                     written += 1
                 else:

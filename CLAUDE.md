@@ -21,6 +21,14 @@ Default: `claude-sonnet-4-6`
 - NEVER write "quiet luxury"
 - Content is about THIS SPECIFIC PIECE — not generic house history
 
+## Banned source content (Japanese resale boilerplate — ignore entirely)
+Notion pages often contain raw copy-paste from Yahoo Japan / Mercari. Strip and ignore:
+- Dimensions in W/H/D format, weight in grams
+- Condition rank labels: "Rank: B", "Rank: S", etc.
+- Field labels: "Manufacturer:", "Accessories: None", "Design:", "Color (pattern) system:"
+- Disclaimers: "color may differ from photo", "also sold in-store", "may already be sold"
+- Any Japanese resale site formatting or language
+
 ## Cron jobs (recreate each session — they die on restart)
 ```bash
 python3 heritage.py --limit 100   # 2:03 AM daily
