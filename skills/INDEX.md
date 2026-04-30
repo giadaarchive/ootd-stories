@@ -37,6 +37,12 @@ One task, one file. Every skill links to the script that executes it and the REA
 | [Schedule to Substack](./schedule-substack.md) | `substack.py` | OOTD story ready to publish |
 | [Re-authenticate Substack session](./substack-login.md) | `setup_cookies.py` | `substack.py` fails with auth error |
 
+## Shop Integration
+
+| Skill | Script | Trigger |
+|-------|--------|---------|
+| [Generate outfit looks for shop item](./generate-outfits.md) | `generate_outfits.py` | Item is listed for sale on the shop |
+
 ## Purchase Research
 
 | Skill | Script | Trigger |

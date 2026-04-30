@@ -10,6 +10,7 @@ Scripts + docs for Lisa's personal fashion archive "Second Best". Notion-backed 
 | `heritage_audit.py` | Add Craft & Materials + Verification & Sources | `python3 heritage_audit.py --recent N` |
 | `retitle.py` | Generate SEO-optimized editorial titles | `python3 retitle.py --recent N --dry-run` then without `--dry-run` |
 | `lookbook.py` | Generate OOTD fashion stories from Notion | — |
+| `generate_outfits.py` | Generate 3 AI outfit look images for a shop item | `python3 generate_outfits.py --page <notion_page_id>` |
 | `llm.py` | Shared LLM client — routes Anthropic or OpenRouter | imported by other scripts |
 
 ## Title formula (retitle.py)

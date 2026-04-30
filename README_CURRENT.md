@@ -5,6 +5,26 @@ Second Best is everything: clothing, bags, shoes, jewellery, watches, eyewear, h
 
 ---
 
+## Session log
+
+### 2026-04-30
+
+**Shop — "As Styled" section launched**
+- Built `generate_outfits.py`: generates 3 AI outfit looks per shop item (Off-Duty / Gallery Opening / Business Casual) via OpenRouter + Gemini image model
+- Generated looks for 2 items: Bertoni Round Bag (Purple Leather) + one other. Images committed to `outfits/` on scripts branch
+- Added `StyledLooks.tsx` to the shop — tab-switching component serving images from `raw.githubusercontent.com`
+- Added `hasOutfitLooks()` to `notion.ts` — HEAD check at build time, section only renders if images exist
+- Deployed to `giadaarchive-shop.vercel.app`
+
+**Shop infrastructure**
+- Fixed persistent Vercel deploy failure: root cause was git commit author email (`lisa@Lisas-MacBook-Air-2.local`) not matching any Vercel team member. Shop repo now uses `giadaarchive@proton.me` as local git author
+- Deleted `giada-shop` project from Vercel — was 1 day old, broken, superseded by `giadaarchive-shop`
+- Fixed `llm_client.py` API key length validation (was accepting placeholder-length keys)
+
+**Skill documented:** [`skills/generate-outfits.md`](./skills/generate-outfits.md)
+
+---
+
 ## Philosophy
 The truly best things — time, attention, loyalty, a good meal in good company — cannot be catalogued. What can be catalogued is the material layer: the objects that, when chosen well and maintained properly, support a life rather than complicate it.
 Second Best is built on three principles:

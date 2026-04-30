@@ -119,12 +119,15 @@ Currently known IDs:
 
 **Why it matters:** If the shop needs to be set up on a new machine (or rebuilt), there is no guide for: Node version, env vars, first deployment, `npx vercel link`.
 
+**Partially addressed (2026-04-30):** `CLAUDE.md` now covers deployment rules, git author email requirement, image domains, and ISR config. Formal `SETUP.md` (first-time install steps) still missing.
+
 **What to add:** `SETUP.md` in `giadaarchive-shop`:
 - Node.js version (check `package.json` engines field)
 - `npm install`
 - Set env vars: `NOTION_TOKEN`, `NOTION_COLLECTION_DB`, `NOTION_OOTD_DB`
-- `npx vercel link` (link to `giadaarchives-projects / giada-shop`)
+- `npx vercel link` (link to `giadaarchives-projects / giadaarchive-shop`)
 - `npx vercel --prod`
+- **Critical:** set `git config user.email "giadaarchive@proton.me"` locally before first commit
 
 ---
 
@@ -159,3 +162,11 @@ Currently known IDs:
 **Why it matters:** Without data, there is no way to know which items attract attention, which editorial styles resonate, or whether the shop is driving any traffic back to Reddit/Substack.
 
 **What to add:** Add Vercel Analytics (1 line in `layout.tsx`) and review monthly. Or add a simple UTM-tagged link from Substack posts to shop items.
+
+---
+
+## Delivered — 2026-04-30
+
+- **AI outfit looks for shop items** — `generate_outfits.py` generates 3 styled images per item. Shop's "As Styled" section renders automatically when images exist on GitHub. See `skills/generate-outfits.md`.
+- **Vercel git author fix** — shop repo now requires `giadaarchive@proton.me` as commit author. Documented in shop `CLAUDE.md`.
+- **Cleaned up Vercel** — deleted `giada-shop` project (broken, superseded by `giadaarchive-shop`).
