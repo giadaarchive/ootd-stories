@@ -8,8 +8,15 @@ Scripts + docs for Lisa's personal fashion archive "Second Best". Notion-backed 
 |---|---|---|
 | `heritage.py` | Write 4-section heritage notes to Notion item pages | `python3 heritage.py --limit N` or `--force <page_id>` or `--model <alias>` |
 | `heritage_audit.py` | Add Craft & Materials + Verification & Sources | `python3 heritage_audit.py --recent N` |
+| `retitle.py` | Generate SEO-optimized editorial titles | `python3 retitle.py --recent N --dry-run` then without `--dry-run` |
 | `lookbook.py` | Generate OOTD fashion stories from Notion | — |
 | `llm.py` | Shared LLM client — routes Anthropic or OpenRouter | imported by other scripts |
+
+## Title formula (retitle.py)
+`[Brand] [Model Name] [Item Type] — [Material], [Colour], [Era if notable]`
+- Brand first, correct accents (Hermès not Hermes), max 80 chars
+- Strip: Japanese resale boilerplate, ALL CAPS, duplicate brand names, condition grades, personal notes
+- See `RETITLE.md` and `skills/retitle.md` for full rules and examples
 
 ## Model aliases (llm.py)
 `sonnet` · `haiku` · `opus` · `llama` · `deepseek` · `qwen` · `mistral` · `gemma`
