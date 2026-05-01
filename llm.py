@@ -107,3 +107,57 @@ def call(system, user, max_tokens, model=DEFAULT_MODEL):
         u = resp.usage
         print(f"     Tokens: {u.prompt_tokens} in / {u.completion_tokens} out  [{model}]")
         return resp.choices[0].message.content.strip()
+
+
+def call_vision(system, user_text, image_urls, max_tokens, model=DEFAULT_MODEL):
+    """
+    Call a vision-capable model with text + images.
+    image_urls: list of publicly accessible image URL strings.
+    Only supported on OpenRouter vision models (e.g. qwen2.5-vl-72b-instruct).
+    """
+    model = resolve(model)
+
+    content = [{"type": "text", "text": user_text}]
+    for url in image_urls:
+        content.append({"type": "image_url", "image_url": {"url": url}})
+
+    if model.startswith("claude-"):
+        # Anthropic multimodal format
+        blocks = [{"type": "text", "text": user_text}]
+        for url in image_urls:
+            blocks.append({
+                "type": "image",
+                "source": {"type": "url", "url": url},
+            })
+        msg = _anthropic().messages.create(
+            model=model,
+            max_tokens=max_tokens,
+            system=system,
+            messages=[{"role": "user", "content": blocks}],
+        )
+        u = msg.usage
+        print(f"     Tokens: {u.input_tokens} in / {u.output_tokens} out  [{model}]  [{len(image_urls)} images]")
+        return msg.content[0].text.strip()
+
+    else:
+        import time
+        for attempt in range(3):
+            try:
+                resp = _openrouter().chat.completions.create(
+                    model=model,
+                    max_tokens=max_tokens,
+                    messages=[
+                        {"role": "system", "content": system},
+                        {"role": "user",   "content": content},
+                    ],
+                )
+                u = resp.usage
+                print(f"     Tokens: {u.prompt_tokens} in / {u.completion_tokens} out  [{model}]  [{len(image_urls)} images]")
+                return resp.choices[0].message.content.strip()
+            except Exception as e:
+                if attempt < 2:
+                    print(f"     [retry {attempt+1}] vision call error: {e}")
+                    time.sleep(3)
+                else:
+                    print(f"     [fail] vision call failed after 3 attempts: {e}")
+                    return ""

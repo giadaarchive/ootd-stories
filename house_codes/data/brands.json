@@ -1,0 +1,114 @@
+{
+  "akris": {
+    "id": "akris",
+    "name": "Akris",
+    "founded_year": 1922,
+    "founding_country": "Switzerland",
+    "founding_category": "RTW",
+    "added_at": "2026-05-01T01:51:59.789525Z"
+  },
+  "kiton": {
+    "id": "kiton",
+    "name": "Kiton",
+    "founded_year": 1956,
+    "founding_country": "Italy",
+    "founding_category": "Tailoring / RTW",
+    "added_at": "2026-05-01T02:25:46.037145Z"
+  },
+  "zimmermann": {
+    "id": "zimmermann",
+    "name": "Zimmermann",
+    "founded_year": 1991,
+    "founding_country": "Australia",
+    "founding_category": "RTW",
+    "added_at": "2026-05-01T03:25:56.125494Z"
+  },
+  "hermes": {
+    "id": "hermes",
+    "name": "Hermès",
+    "founded_year": null,
+    "founding_country": null,
+    "founding_category": null,
+    "added_at": "2026-05-01T03:38:59.341863Z"
+  },
+  "dior": {
+    "id": "dior",
+    "name": "Christian Dior",
+    "founded_year": null,
+    "founding_country": null,
+    "founding_category": null,
+    "added_at": "2026-05-01T03:45:12.432856Z"
+  },
+  "chanel": {
+    "id": "chanel",
+    "name": "Chanel",
+    "founded_year": null,
+    "founding_country": null,
+    "founding_category": null,
+    "added_at": "2026-05-01T03:51:38.918433Z"
+  },
+  "lv": {
+    "id": "lv",
+    "name": "Louis Vuitton",
+    "founded_year": null,
+    "founding_country": null,
+    "founding_category": null,
+    "added_at": "2026-05-01T03:57:34.002160Z"
+  },
+  "ferragamo": {
+    "id": "ferragamo",
+    "name": "Salvatore Ferragamo",
+    "founded_year": null,
+    "founding_country": null,
+    "founding_category": null,
+    "added_at": "2026-05-01T04:11:20.822112Z"
+  },
+  "balenciaga": {
+    "id": "balenciaga",
+    "name": "Balenciaga",
+    "founded_year": null,
+    "founding_country": null,
+    "founding_category": null,
+    "added_at": "2026-05-01T07:20:32.292205Z"
+  },
+  "saintlaurent": {
+    "id": "saintlaurent",
+    "name": "Saint Laurent",
+    "founded_year": null,
+    "founding_country": null,
+    "founding_category": null,
+    "added_at": "2026-05-01T07:20:34.546939Z"
+  },
+  "celine": {
+    "id": "celine",
+    "name": "Celine",
+    "founded_year": null,
+    "founding_country": null,
+    "founding_category": null,
+    "added_at": "2026-05-01T07:20:35.822486Z"
+  },
+  "givenchy": {
+    "id": "givenchy",
+    "name": "Givenchy",
+    "founded_year": null,
+    "founding_country": null,
+    "founding_category": null,
+    "added_at": "2026-05-01T07:25:38.726685Z"
+  },
+  "valentino": {
+    "id": "valentino",
+    "name": "Valentino",
+    "founded_year": null,
+    "founding_country": null,
+    "founding_category": null,
+    "added_at": "2026-05-01T07:31:40.450182Z"
+  },
+  "loewe": {
+    "id": "loewe",
+    "name": "Loewe",
+    "founded_year": null,
+    "founding_country": null,
+    "founding_category": null,
+    "added_at": "2026-05-01T07:37:42.745901Z"
+  }
+}

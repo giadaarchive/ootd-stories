@@ -68,9 +68,18 @@ print('OK' if r.status_code == 200 else f'FAIL: {r.status_code}')
 ```
 Notion (source of truth)
     │
-    ├── lookbook-stories (this repo) ──► generates heritage notes, OOTD stories → writes back to Notion
+    ├── lookbook-stories (this repo)
     │       │
-    │       └── llm.py (Anthropic + OpenRouter) — shared LLM client
+    │       ├── heritage.py / retitle.py / lookbook.py  → writes back to Notion
+    │       ├── llm.py (Anthropic + OpenRouter) — shared LLM client
+    │       │
+    │       └── house_codes/   ──► Andromeda — reactive fashion knowledge graph
+    │               │
+    │               ├── query_engine.py   reactive query → fetch → extract → answer
+    │               ├── graph.py          JSON flat-file knowledge graph
+    │               ├── vision_extract.py runway look images → vision codes
+    │               ├── fetch_show.py     tag-walk + YouTube fetchers (cached)
+    │               └── data/             brands.json · seasons.json · instances.json
     │
     └── giadaarchive-shop ──► reads Notion at build time → renders shop pages on Vercel
             │
@@ -78,6 +87,28 @@ Notion (source of truth)
 ```
 
 **Related repos:** `giadaarchive/shop` (Next.js storefront) · `giadaarchive/writelikeL` (voice/tone guide) · `giadaarchive/behindthecultured` (brand strategy)
+
+---
+
+## Andromeda — runway knowledge graph
+
+Answers fashion questions from real runway data. Fetches on demand, caches in graph, never pre-builds speculatively.
+
+```bash
+# Ask a question (streams live brand status + answer)
+python3 house_codes/query_engine.py --stream "What materials are trending for AW2026?"
+
+# Web UI (port 3131)
+cd frontend && npm run dev
+```
+
+**Model stack — 100% open-source (OpenRouter):**
+- Qwen-2.5-72B → question interpretation + synthesis
+- Qwen2.5-VL-72B → vision extraction from runway look images
+- Llama-3.3-70B → taxonomy validation
+- Disk cache (30d) → zero tokens on repeat questions
+
+**Data:** `house_codes/data/` — flat JSON graph. Seeded with 14 brands, 27 seasons, 229 instances. Grows reactively as queries arrive.
 
 ### Notion databases wired together
 

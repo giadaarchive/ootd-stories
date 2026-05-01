@@ -19,3 +19,11 @@ __pycache__/
 
 # Images (hosted separately via GitHub API, not committed as git objects)
 collection-images/
+
+# Andromeda runtime (cache is ephemeral; data/ is committed as seeded graph)
+house_codes/cache/
+
+# Next.js
+frontend/node_modules/
+frontend/.next/
+frontend/.env.local

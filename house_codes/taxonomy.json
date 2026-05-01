@@ -1,0 +1,80 @@
+{
+  "version": "1.1",
+  "categories": {
+    "COLOUR": {
+      "code": "1",
+      "subcategories": {
+        "SIGNATURE_COLOUR": {"code": "1.1", "label": "Signature colour (brand-owned, e.g. Hermès orange)"},
+        "PALETTE": {"code": "1.2", "label": "Palette (seasonal colour family — list all dominant colours)"},
+        "COLOUR_PAIRING": {"code": "1.3", "label": "Colour pairing (recurring two-tone or tonal combination)"},
+        "COLOUR_ABSENCE": {"code": "1.4", "label": "Colour absence (deliberate neutrality, e.g. The Row no-colour)"}
+      }
+    },
+    "SILHOUETTE": {
+      "code": "2",
+      "subcategories": {
+        "GARMENT_SILHOUETTE": {"code": "2.1", "label": "Garment silhouette (A-line, column, cocoon, trapeze, etc.)"},
+        "SHOULDER_CONSTRUCTION": {"code": "2.2", "label": "Shoulder construction (structured, dropped, exposed, extended)"},
+        "WAIST_DEFINITION": {"code": "2.3", "label": "Waist definition (belted / unbelted / dropped / empire)"},
+        "HEM": {"code": "2.4", "label": "Hem length and shape (mini, midi, maxi, asymmetric, fringe)"},
+        "VOLUME_PLACEMENT": {"code": "2.5", "label": "Volume placement (top-heavy / bottom-heavy / balanced / minimal)"}
+      }
+    },
+    "MOTIF_PRINT": {
+      "code": "3",
+      "subcategories": {
+        "SYMBOLIC_MOTIF": {"code": "3.1", "label": "Symbolic motif (recurring branded symbol, e.g. Versace Medusa)"},
+        "GEOMETRIC_PATTERN": {"code": "3.2", "label": "Geometric pattern (stripe, check, grid, monogram)"},
+        "FIGURATIVE_PRINT": {"code": "3.3", "label": "Figurative print (horses, florals, fauna, botanical)"},
+        "ABSTRACT_PRINT": {"code": "3.4", "label": "Abstract print (non-representational pattern)"},
+        "ARCHIVE_PRINT": {"code": "3.5", "label": "Archive print (reissued historical motif from house archive)"}
+      }
+    },
+    "MATERIAL_FABRIC": {
+      "code": "4",
+      "subcategories": {
+        "SIGNATURE_MATERIAL": {"code": "4.1", "label": "Signature material (named fabric specific to house, e.g. Hermès Barenia)"},
+        "CONSTRUCTION_TECHNIQUE": {"code": "4.2", "label": "Garment construction method (bias cut, laser-cut, pleating, layering, draping)"},
+        "TEXTILE_TECHNIQUE": {"code": "4.3", "label": "Textile fabrication technique (jacquard weave, boucle, intarsia, ribbing, horsehair)"},
+        "SURFACE_TREATMENT": {"code": "4.4", "label": "Surface finish applied post-fabrication (embossing, embroidery, gesso, gold leaf, quilting, patina)"},
+        "MATERIAL_PROVENANCE": {"code": "4.5", "label": "Material sourcing (region, heritage supplier, named mill)"}
+      }
+    },
+    "HARDWARE_DETAIL": {
+      "code": "5",
+      "subcategories": {
+        "CLOSURE_TYPE": {"code": "5.1", "label": "Closure type (toggle, hook, button, zip, none)"},
+        "METAL_FINISH": {"code": "5.2", "label": "Metal finish (gold, palladium, ruthenium, oxidised)"},
+        "SIGNATURE_HARDWARE": {"code": "5.3", "label": "Signature hardware (e.g. Chanel chain, Hermès Kelly clasp)"},
+        "INTERIOR_DETAIL": {"code": "5.4", "label": "Interior detail (lining colour, stamp, stitch count)"}
+      }
+    },
+    "CULTURAL_REFERENCE": {
+      "code": "6",
+      "subcategories": {
+        "GEOGRAPHIC_ORIGIN": {"code": "6.1", "label": "Geographic origin or cultural territory (equestrian England, ancient Greece, Colombia)"},
+        "HISTORICAL_PERIOD": {"code": "6.2", "label": "Historical period (Art Deco, Japonisme, 1970s sportswear)"},
+        "MUSE": {"code": "6.3", "label": "Muse (real or fictional person cited as inspiration)"},
+        "ART_MOVEMENT": {"code": "6.4", "label": "Art movement or discipline (architecture, textile art, dance, sculpture, painting)"}
+      }
+    },
+    "NARRATIVE_THEME": {
+      "code": "7",
+      "subcategories": {
+        "SEASONAL_CONCEPT": {"code": "7.1", "label": "Seasonal concept (explicitly stated show theme or title)"},
+        "EMOTIONAL_TERRITORY": {"code": "7.2", "label": "Recurring emotional territory (romanticism, rebellion, utility, sensoriality)"},
+        "CUSTOMER_ARCHETYPE_HOUSE": {"code": "7.3", "label": "Customer archetype as stated by the house in show notes or designer quotes"},
+        "CUSTOMER_ARCHETYPE_OBSERVED": {"code": "7.4", "label": "Customer archetype inferred by analysis from runway patterns, not stated by the house"}
+      }
+    },
+    "SENSORY_EXPERIENTIAL": {
+      "code": "8",
+      "subcategories": {
+        "SHOW_ENVIRONMENT": {"code": "8.1", "label": "Show environment (set design, venue, installation)"},
+        "SOUND_MUSIC": {"code": "8.2", "label": "Sound / music (recurring composers, sonic codes)"},
+        "SCENT": {"code": "8.3", "label": "Scent (in-store or runway scent codes)"},
+        "BRAND_LANGUAGE": {"code": "8.4", "label": "Brand language (naming conventions, copy tone, designer quotes as brand signal)"}
+      }
+    }
+  }
+}

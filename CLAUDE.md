@@ -12,6 +12,57 @@ Scripts + docs for Lisa's personal fashion archive "Second Best". Notion-backed 
 | `lookbook.py` | Generate OOTD fashion stories from Notion | — |
 | `generate_outfits.py` | Generate 3 AI outfit look images for a shop item | `python3 generate_outfits.py --page <notion_page_id>` |
 | `llm.py` | Shared LLM client — routes Anthropic or OpenRouter | imported by other scripts |
+| `house_codes/query_engine.py` | Andromeda: reactive runway query engine | `python3 house_codes/query_engine.py --stream "question"` |
+| `house_codes/prewarm_aw2026.py` | Pre-warm AW2026 data for all major houses | `python3 house_codes/prewarm_aw2026.py --gender women` |
+
+## Andromeda — fashion knowledge graph (`house_codes/`)
+
+Reactive runway archive. Data is fetched on demand when a query requires it, cached in a JSON graph, never pre-built speculatively.
+
+### Architecture
+```
+Query → interpret (Qwen) → pull from graph (local) → synthesize (Qwen) → answer
+                                   ↓ if no data
+                         fetch tag-walk → vision extract (Qwen-VL) → store codes → synthesize
+```
+
+### Key files
+| File | Role |
+|------|------|
+| `query_engine.py` | Main entry point — interpret + ensure_coverage + pull + synthesize |
+| `fetch_show.py` | Fetches tag-walk (session cookie) + YouTube (yt-dlp) |
+| `vision_extract.py` | Batched vision extraction via Qwen2.5-VL-72B |
+| `graph.py` | Read/write JSON knowledge graph (brands, seasons, instances) |
+| `checker.py` | Taxonomy validator; `check_taxonomy_only()` for vision codes |
+| `cache.py` | SHA256 disk cache — 7d URL, 14d LLM, 1d tag-walk, 30d answers |
+| `models_config.json` | Model-to-task assignment (all OpenRouter, no Anthropic) |
+| `data/` | `brands.json`, `seasons.json`, `instances.json` — the knowledge graph |
+
+### Model allocation (all open-source via OpenRouter)
+| Task | Model | Why |
+|------|-------|-----|
+| Question interpret | Qwen-2.5-72B | Structured JSON extraction, fast |
+| Vision analysis | Qwen2.5-VL-72B | Runway image → colour/silhouette/fabric |
+| Taxonomy checker | Llama-3.3-70B | Fast evidence validation |
+| Cross-brand synthesis | Qwen-2.5-72B | Pattern reasoning, editorial answer |
+| Answer cache | disk (30d TTL) | Zero tokens on repeat questions |
+
+Anthropic (Claude) is NOT used in Andromeda pipelines. It is only present in heritage.py / lookbook.py for long-form creative writing where quality gap still justifies cost.
+
+### Running Andromeda locally
+```bash
+# Query (streams status + answer)
+python3 house_codes/query_engine.py --stream "What colours are trending for SS2026?"
+
+# Pre-warm a full season
+python3 house_codes/prewarm_aw2026.py --gender women
+
+# Frontend (port 3131)
+cd frontend && npm run dev
+```
+
+### Tag-walk session cookie
+Set `TWFOSID_TAGWALK` in `.env` — get from Chrome DevTools → Application → Cookies → tag-walk.com → TWFOSID. Expires periodically; refresh when 401s appear.
 
 ## Title formula (retitle.py)
 `[Brand] [Model Name] [Item Type] — [Material], [Colour], [Era if notable]`
@@ -46,15 +97,16 @@ Default: `claude-sonnet-4-6`
 
 The listing text is used ONLY as input context for heritage.py — it is never written to the page.
 
-## Cron jobs (recreate each session — they die on restart)
-```bash
-python3 heritage.py --limit 100   # 2:03 AM daily
-python3 heritage_audit.py --recent 100  # 2:08 AM daily
-python3 heritage.py --limit 200   # 5:03 AM daily
-python3 heritage_audit.py --recent 200  # 5:08 AM daily
+## Cron jobs (macOS crontab — survive session restarts)
 ```
-Crons are in macOS crontab (`crontab -l`) — survive session restarts.
-Logs: `/tmp/heritage_cron.log` and `/tmp/heritage_audit_cron.log`
+3 8 * * *   heritage.py --limit 100        # 8:03 AM SGT
+8 8 * * *   heritage_audit.py --recent 100 # 8:08 AM SGT
+30 8 * * *  retitle.py --recent 50         # 8:30 AM SGT
+3 11 * * *  heritage.py --limit 200        # 11:03 AM SGT
+8 11 * * *  heritage_audit.py --recent 200 # 11:08 AM SGT
+```
+All run AFTER the Anthropic API resets at 00:00 UTC = 08:00 SGT.
+Logs: `/tmp/heritage_cron.log`, `/tmp/heritage_audit_cron.log`, `/tmp/retitle_cron.log`
 
 ## Checkpoint
 `heritage_checkpoint.json` — tracks position for `--limit` runs (newest → oldest).
