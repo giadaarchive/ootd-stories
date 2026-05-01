@@ -392,8 +392,8 @@ def process_item(brand, page, model=DEFAULT_MODEL):
         print("     No heritage content — skipping (run heritage.py first)")
         return "no_heritage"
 
-    if page_has_section(blocks, VERIFICATION_MARKER):
-        print("     Already audited — skipping")
+    if page_has_section(blocks, CRAFT_MARKER):
+        print("     Craft & Materials already present — skipping")
         return "already_done"
 
     # Extract existing sections
@@ -412,11 +412,6 @@ def process_item(brand, page, model=DEFAULT_MODEL):
         time.sleep(0.5)
     else:
         print("     Craft & Materials already present")
-
-    # Always add Verification & Sources
-    print("     Generating Verification & Sources...")
-    audit = generate_audit(brand, item, design_language, this_piece, craft_existing, model=model)
-    new_blocks += build_verification_blocks(audit)
 
     if new_blocks:
         append_blocks(page_id, new_blocks)
