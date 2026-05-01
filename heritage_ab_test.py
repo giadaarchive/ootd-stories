@@ -1,104 +1,108 @@
 #!/usr/bin/env python3
 """
-A/B test: compare Qwen-draft-only vs Qwen-draft+Claude-review for heritage notes.
+A/B test: three-pass pipeline comparison for heritage notes.
+
+  A: Qwen draft only (no research, no audit)
+  B: Qwen research + Qwen draft + Claude audit  ← full pipeline
 
 Usage:
   python3 heritage_ab_test.py <notion_page_id>
 
-Outputs two versions side-by-side to stdout. Does NOT write to Notion.
+Does NOT write to Notion. Cost logged to stderr.
 """
 import json
-import os
 import sys
 
 from dotenv import load_dotenv
 load_dotenv()
 
 import llm as llm_module
+import research_agent
 from heritage import (
     SYSTEM_PROMPT, REVIEW_PROMPT, DRAFT_MODEL, REVIEW_MODEL,
-    build_user_prompt, _parse_json, DESIGNER_ERAS,
+    DESIGNER_ERAS, NOTION_HEADERS,
+    build_user_prompt, build_research_prompt, _parse_json,
+    extract_item_details, read_page_description, get_brand_for_page,
+    get_page_image_urls,
 )
-from heritage import get_brand_and_item  # noqa: we'll call fetch helpers directly
-
 import requests
 
-NOTION_TOKEN = os.environ["NOTION_TOKEN"]
-NOTION_HEADERS = {
-    "Authorization": f"Bearer {NOTION_TOKEN}",
-    "Notion-Version": "2022-06-28",
-    "Content-Type": "application/json",
-}
-COLLECTION_DB_ID = "ad079964969043ae9fa85a4f3ca1a9ee"
 
-
-def fetch_page_data(page_id):
+def fetch_page(page_id):
     r = requests.get(f"https://api.notion.com/v1/pages/{page_id}", headers=NOTION_HEADERS)
     r.raise_for_status()
     return r.json()
 
 
-def extract_brand_item(page):
-    props = page.get("properties", {})
-    def txt(key):
-        p = props.get(key, {})
-        if p.get("type") == "title":
-            return "".join(x["plain_text"] for x in p.get("title", []))
-        if p.get("type") == "rich_text":
-            return "".join(x["plain_text"] for x in p.get("rich_text", []))
-        if p.get("type") == "select":
-            s = p.get("select")
-            return s["name"] if s else ""
-        return ""
-
-    brand = txt("Designer") or txt("Brand") or "Unknown"
-    name  = txt("Name") or txt("Title") or txt("Item")
-    return brand, name
-
-
 def run_ab(page_id):
-    page = fetch_page_data(page_id)
-    brand, item = extract_brand_item(page)
-    era_ctx = DESIGNER_ERAS.get(brand, "")
-    user_msg = build_user_prompt(brand, item, era_ctx, "")
+    page      = fetch_page(page_id)
+    brand, era_ctx = get_brand_for_page(page)
+    item      = extract_item_details(page)
+    page_desc = read_page_description(page_id)
+    image_urls = get_page_image_urls(page_id)
 
-    print(f"\n{'='*70}")
-    print(f"Item: {brand} — {item}")
-    print(f"{'='*70}\n")
+    if brand == "Unknown":
+        brand = item["name"].split()[0] if item["name"] else "Unknown"
 
-    # Version A: Qwen only
-    print("── VERSION A: Qwen draft only ──────────────────────────────────────")
-    raw_a = llm_module.call(SYSTEM_PROMPT, user_msg, max_tokens=1800, model=DRAFT_MODEL)
-    version_a = _parse_json(raw_a)
-    for key, text in version_a.items():
-        print(f"\n[{key}]\n{text}")
+    print(f"\n{'='*72}")
+    print(f"  {brand} — {item['name']}")
+    print(f"  category: {item['category']}  material: {item['material']}  year: {item['year']}")
+    print(f"  images found: {len(image_urls)}")
+    print(f"{'='*72}\n")
 
-    cost_after_a = llm_module.session_cost()
-    print(f"\n→ Cost after A: ${cost_after_a['usd']:.4f}")
+    # ── Version A: Qwen draft only (baseline) ────────────────────────────────
+    print("── A: Qwen draft only (no research, no audit) ──────────────────────────")
+    user_msg_a = build_user_prompt(brand, item, era_ctx, page_desc)
+    raw_a = llm_module.call(SYSTEM_PROMPT, user_msg_a, max_tokens=1800, model=DRAFT_MODEL)
+    ver_a = _parse_json(raw_a)
+    for key, text in ver_a.items():
+        print(f"\n[{key.upper()}]")
+        print(text)
+    cost_a = llm_module.session_cost()["usd"]
+    print(f"\n→ Baseline cost: ${cost_a:.4f}")
 
-    # Version B: Qwen draft + Claude review
-    print("\n\n── VERSION B: Qwen draft + Claude review ───────────────────────────")
-    raw_b = llm_module.call(SYSTEM_PROMPT, user_msg, max_tokens=1800, model=DRAFT_MODEL)
+    # ── Version B: Research + Draft + Audit ──────────────────────────────────
+    print("\n\n── B: Qwen-VL vision + Qwen research + Qwen draft + Claude audit ────────")
+    notes = research_agent.research(
+        brand=brand,
+        item_name=item["name"],
+        year=item.get("year", ""),
+        category=item.get("category", ""),
+        material=item.get("material", ""),
+        image_urls=image_urls[:6],
+    )
+
+    user_msg_b = build_research_prompt(brand, item, notes, era_ctx)
+    raw_b = llm_module.call(SYSTEM_PROMPT, user_msg_b, max_tokens=1800, model=DRAFT_MODEL)
     draft_b = _parse_json(raw_b)
+
+    sources_note = ""
+    if notes.get("sources"):
+        sources_note = f"\nResearch sources: {', '.join(notes['sources'][:5])}"
     review_user = (
-        f"Original item context:\n{user_msg}\n\n"
-        f"Draft to review:\n{json.dumps(draft_b, indent=2)}"
+        f"Item: {brand} — {item['name']} ({item.get('year','')}){sources_note}\n\n"
+        f"Draft to fact-check and validate:\n{json.dumps(draft_b, indent=2)}"
     )
     raw_b2 = llm_module.call(REVIEW_PROMPT, review_user, max_tokens=1800, model=REVIEW_MODEL)
-    version_b = _parse_json(raw_b2)
-    for key, text in version_b.items():
-        print(f"\n[{key}]\n{text}")
+    ver_b = _parse_json(raw_b2)
 
-    cost_after_b = llm_module.session_cost()
-    print(f"\n→ Cost after B: ${cost_after_b['usd']:.4f}  (delta for B: ${cost_after_b['usd'] - cost_after_a['usd']:.4f})")
+    for key, text in ver_b.items():
+        print(f"\n[{key.upper()}]")
+        print(text)
 
-    print(f"\n{'='*70}")
-    print("Compare the two versions above and decide which pipeline to keep.")
-    print(f"{'='*70}\n")
+    cost_b = llm_module.session_cost()["usd"]
+    print(f"\n→ Full pipeline cost: ${cost_b:.4f}  (research + audit adds: ${cost_b - cost_a:.4f})")
+    print(f"\n{'='*72}")
+    print("  Compare A vs B. Full pipeline should show: specific CD name, verified")
+    print("  dates, visual details from images, sourced historical context.")
+    print(f"{'='*72}\n")
 
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Usage: python3 heritage_ab_test.py <notion_page_id>")
         sys.exit(1)
-    run_ab(sys.argv[1])
+    raw_id = sys.argv[1].strip().split("?")[0]
+    # Accept full URL or bare ID
+    page_id = raw_id.split("/")[-1].replace("-", "")[-32:]
+    run_ab(page_id)

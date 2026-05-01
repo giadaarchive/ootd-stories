@@ -83,6 +83,8 @@ REVIEW_MODEL = "claude-sonnet-4-6"             # edits for accuracy + voice
 DEFAULT_MODEL = DRAFT_MODEL                     # --model flag overrides both
 MODEL_ALIASES = llm_module.MODEL_ALIASES
 
+AUTH_APPENDIX_ID = "349ccd15cda180f3a954e7028bf80357"
+
 SYSTEM_PROMPT = """\
 You are writing a heritage document for a single luxury fashion piece in a personal archive collection.
 
@@ -130,16 +132,21 @@ Return only valid JSON, nothing else.\
 """
 
 REVIEW_PROMPT = """\
-You are editing a heritage document for a luxury fashion archive. A draft has been written —
-your job is to refine it, not rewrite it.
+You are auditing a heritage document for a luxury fashion archive piece. Fact-check and validate every claim.
 
-Fix only:
-- Factual overclaims (if the draft speculates about specific dates/CDs without evidence, soften)
-- Generic house-history sentences that aren't about this specific piece (make them piece-specific)
-- Awkward phrasing or repetition between sections
+AUDIT TASKS:
+1. Fix any overclaims — if a claim cannot be verified from the visual evidence or research provided, soften or flag it
+2. Flag discrepancies: if the draft claims something that contradicts the visual evidence (e.g. claims damage that isn't in images, wrong colour, wrong hardware), add to "discrepancies" list
+3. Ensure seasonal attribution is specific (FW/SS + year, not just "1987")
+4. Ensure rarity is stated clearly in historical_context if Very Rare or Rare
+5. Remove any invented details — no fabricated dates, names, or specifics not supported by evidence
 
-Keep what works. Return the same JSON structure with identical keys.
-Return only valid JSON, nothing else.\
+Return the audited JSON PLUS add a "discrepancies" key (list of strings, empty list if none found).
+Return only valid JSON.\
+"""
+
+MERGE_PROMPT = """\
+You are given three draft heritage documents for the same piece. Merge them into one optimal version: take the most specific and accurate paragraph from each section across all three drafts. Where drafts disagree, prefer the most specific and verifiable claim. Return same JSON structure. Return only valid JSON.\
 """
 
 
@@ -354,7 +361,7 @@ def append_blocks_to_page(page_id, blocks):
         time.sleep(0.3)
 
 
-# ── Prompt ──────────────────────────────────────────────────────────────────
+# ── Prompt builders ──────────────────────────────────────────────────────────
 
 def build_user_prompt(brand, item, era_context, page_description=""):
     details = []
@@ -384,6 +391,53 @@ def build_user_prompt(brand, item, era_context, page_description=""):
     )
 
 
+def build_research_prompt(brand, item, research_notes, era_context):
+    """Build the heritage draft prompt enriched with research agent findings."""
+    details = []
+    if item["year"]:     details.append(f"year made: {item['year']}")
+    if item["material"]: details.append(f"material noted: {item['material']}")
+    if item["category"]: details.append(f"archive category: {item['category']}")
+    details_str = " | ".join(details) if details else "details not recorded"
+
+    research_block = ""
+    if research_notes:
+        cd      = research_notes.get("creative_director", "")
+        season  = research_notes.get("season_attribution", "")
+        era     = research_notes.get("era_aesthetic", "")
+        mat     = research_notes.get("material_notes", "")
+        hist    = research_notes.get("historical_context", "")
+        vis     = research_notes.get("visual_description", "")
+        rarity  = research_notes.get("rarity_assessment", {})
+        srcs    = research_notes.get("sources", [])
+
+        rarity_str = ""
+        if rarity:
+            rarity_str = (
+                f"\nRarity: {rarity.get('rating', '')} — {rarity.get('evidence', '')}"
+            )
+
+        research_block = (
+            "\n\nResearch findings (verified — use these as factual ground truth):\n"
+            f"Creative director at time of production: {cd}\n"
+            f"Season attribution: {season}\n"
+            f"Era aesthetic: {era}\n"
+            f"Material notes: {mat}\n"
+            f"Historical context: {hist}\n"
+            f"{rarity_str}\n"
+            f"Visual analysis from item images: {vis}\n"
+            f"Sources consulted: {', '.join(srcs[:5])}\n"
+        )
+
+    return (
+        f"Brand: {brand}\n"
+        f"Item: {item['name']}\n"
+        f"{details_str}\n"
+        f"{research_block}\n"
+        f"Designer-era context (supplement only — research findings above take precedence):\n"
+        f"{era_context}"
+    )
+
+
 # ── Content generation ──────────────────────────────────────────────────────
 
 def _parse_json(raw):
@@ -395,27 +449,101 @@ def _parse_json(raw):
     return json.loads(raw)
 
 
-def generate_content(brand, item, page_description="", model=DEFAULT_MODEL):
-    era_ctx  = DESIGNER_ERAS.get(brand, "")
-    user_msg = build_user_prompt(brand, item, era_ctx, page_description)
+def get_page_image_urls(page_id):
+    """Extract all image URLs from a Notion page (Notion signed S3 URLs)."""
+    urls = []
+    for block in get_all_blocks(page_id):
+        if block.get("type") == "image":
+            img = block["image"]
+            if img.get("type") == "file":
+                urls.append(img["file"]["url"])
+            elif img.get("type") == "external":
+                urls.append(img["external"]["url"])
+    return urls
 
-    # Pass 1: Qwen drafts
+
+def generate_content(brand, item, page_description="", model=DEFAULT_MODEL, page_id=None):
+    era_ctx = DESIGNER_ERAS.get(brand, "")
+
+    # ── Research pass (Qwen-VL + agentic web search) ──────────────────────────
+    research_notes = None
+    if model == DEFAULT_MODEL and page_id:
+        try:
+            import research_agent
+            image_urls = get_page_image_urls(page_id)
+            research_notes = research_agent.research(
+                brand=brand,
+                item_name=item["name"],
+                year=item.get("year", ""),
+                category=item.get("category", ""),
+                material=item.get("material", ""),
+                image_urls=image_urls[:6],  # cap at 6 images per VL call
+            )
+        except Exception as e:
+            print(f"     [research] failed ({e}), falling back to prompt-only draft")
+
+    # ── Draft pass — run Qwen 3x, then Claude merges ──────────────────────────
+    if research_notes:
+        user_msg = build_research_prompt(brand, item, research_notes, era_ctx)
+    else:
+        user_msg = build_user_prompt(brand, item, era_ctx, page_description)
+
     draft_model = DRAFT_MODEL if model == DEFAULT_MODEL else model
-    print(f"     [draft] {draft_model}")
-    raw = llm_module.call(SYSTEM_PROMPT, user_msg, max_tokens=1800, model=draft_model)
-    draft = _parse_json(raw)
 
-    # Pass 2: Claude reviews (only when using the default two-pass pipeline)
     if model == DEFAULT_MODEL:
-        review_user = (
-            f"Original item context:\n{user_msg}\n\n"
-            f"Draft to review:\n{json.dumps(draft, indent=2)}"
-        )
-        print(f"     [review] {REVIEW_MODEL}")
-        raw2 = llm_module.call(REVIEW_PROMPT, review_user, max_tokens=1800, model=REVIEW_MODEL)
-        return _parse_json(raw2)
+        # Triple draft
+        drafts = []
+        for i in range(3):
+            print(f"     [draft {i+1}/3] {draft_model}")
+            try:
+                raw = llm_module.call(SYSTEM_PROMPT, user_msg, max_tokens=1800, model=draft_model)
+                drafts.append(_parse_json(raw))
+            except Exception as e:
+                print(f"     [draft {i+1}] failed: {e}")
 
-    return draft
+        if len(drafts) == 0:
+            raise RuntimeError("All 3 draft attempts failed")
+
+        if len(drafts) == 1:
+            # Only one succeeded — skip merge, proceed directly to audit
+            draft = drafts[0]
+        else:
+            # Claude merges the drafts
+            print(f"     [merge] {REVIEW_MODEL} merging {len(drafts)} drafts")
+            merge_user = f"Three drafts:\n{json.dumps(drafts, indent=2)}"
+            try:
+                merged_raw = llm_module.call(MERGE_PROMPT, merge_user, max_tokens=1800, model=REVIEW_MODEL)
+                draft = _parse_json(merged_raw)
+            except Exception as e:
+                print(f"     [merge] failed ({e}), using first draft")
+                draft = drafts[0]
+    else:
+        # Non-default model: single draft, no merge
+        print(f"     [draft] {draft_model}")
+        raw = llm_module.call(SYSTEM_PROMPT, user_msg, max_tokens=1800, model=draft_model)
+        draft = _parse_json(raw)
+
+    # ── Audit pass (Claude) ───────────────────────────────────────────────────
+    if model == DEFAULT_MODEL:
+        sources_note = ""
+        if research_notes and research_notes.get("sources"):
+            sources_note = f"\nResearch sources used: {', '.join(research_notes['sources'][:5])}"
+
+        visual_note = ""
+        if research_notes and research_notes.get("visual_description"):
+            visual_note = f"\nVisual evidence from images: {research_notes['visual_description'][:600]}"
+
+        review_user = (
+            f"Item: {brand} — {item['name']} ({item.get('year','')})\n"
+            f"{sources_note}\n"
+            f"{visual_note}\n\n"
+            f"Draft to fact-check and validate:\n{json.dumps(draft, indent=2)}"
+        )
+        print(f"     [audit] {REVIEW_MODEL}")
+        raw2 = llm_module.call(REVIEW_PROMPT, review_user, max_tokens=1800, model=REVIEW_MODEL)
+        return _parse_json(raw2), research_notes
+
+    return draft, research_notes
 
 
 # ── Block builders ──────────────────────────────────────────────────────────
@@ -451,7 +579,7 @@ def toggle(title, children_paras):
     }
 
 
-def build_blocks(content):
+def build_blocks(content, research_notes=None):
     blocks = [
         {"type": "divider", "divider": {}},
         h2(HERITAGE_MARKER),
@@ -467,7 +595,107 @@ def build_blocks(content):
             p = p.strip()
             if p:
                 blocks.append(para(p))
+
+    # ── Rarity & Market Signal toggle ────────────────────────────────────────
+    if research_notes and research_notes.get("rarity_assessment"):
+        rarity = research_notes["rarity_assessment"]
+        rating   = rarity.get("rating", "")
+        evidence = rarity.get("evidence", "")
+        listings = rarity.get("market_listings", [])
+
+        rarity_lines = []
+        if rating:
+            rarity_lines.append(f"Rating: {rating}")
+        if evidence:
+            rarity_lines.append(f"Evidence: {evidence}")
+        if listings:
+            for listing in listings[:5]:
+                src   = listing.get("source", "")
+                desc  = listing.get("description", "")
+                price = listing.get("price", "")
+                url   = listing.get("url", "")
+                line = f"{src}: {desc}"
+                if price:
+                    line += f" — {price}"
+                if url:
+                    line += f" ({url})"
+                rarity_lines.append(line)
+
+        if rarity_lines:
+            blocks.append(toggle("Rarity & Market Signal", rarity_lines))
+
+    # ── Conservation Notes toggle ─────────────────────────────────────────────
+    if research_notes and research_notes.get("conservation_notes"):
+        conservation_text = research_notes["conservation_notes"]
+        # Split on double newlines if present, otherwise wrap in a list
+        conservation_paras = [p.strip() for p in conservation_text.split("\n\n") if p.strip()]
+        if not conservation_paras:
+            conservation_paras = [conservation_text]
+        blocks.append(toggle("Conservation Notes", conservation_paras))
+
     return blocks
+
+
+# ── Discrepancy flagging ──────────────────────────────────────────────────────
+
+def flag_for_verification(page_id, discrepancies):
+    """Add a yellow callout block at the top of the page flagging discrepancies."""
+    callout = {
+        "type": "callout",
+        "callout": {
+            "rich_text": [{"type": "text", "text": {"content": f"Needs physical verification: {'; '.join(discrepancies)}"}}],
+            "icon": {"type": "emoji", "emoji": "⚠️"},
+            "color": "yellow_background",
+        },
+    }
+    try:
+        r = requests.patch(
+            f"https://api.notion.com/v1/blocks/{page_id}/children",
+            headers=NOTION_HEADERS,
+            json={"children": [callout]},
+        )
+        if r.status_code not in (200, 201):
+            print(f"     [flag] warning: callout block failed ({r.status_code})")
+        else:
+            print(f"     [flag] discrepancy callout added ({len(discrepancies)} item(s))")
+    except Exception as e:
+        print(f"     [flag] failed to add callout: {e}")
+
+
+# ── Authentication appendix ───────────────────────────────────────────────────
+
+def append_auth_findings(page_id, brand, item_name, auth_signals, sources):
+    """Append authentication findings to the auth appendix page."""
+    if not auth_signals:
+        return
+    blocks = [
+        {
+            "type": "heading_3",
+            "heading_3": {"rich_text": [{"type": "text", "text": {"content": f"{brand} — {item_name}"}}]},
+        },
+    ]
+    for signal in auth_signals:
+        blocks.append({
+            "type": "bulleted_list_item",
+            "bulleted_list_item": {"rich_text": [{"type": "text", "text": {"content": signal}}]},
+        })
+    if sources:
+        blocks.append({
+            "type": "paragraph",
+            "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"Sources: {', '.join(sources[:3])}"}}]},
+        })
+    try:
+        r = requests.patch(
+            f"https://api.notion.com/v1/blocks/{AUTH_APPENDIX_ID}/children",
+            headers=NOTION_HEADERS,
+            json={"children": blocks},
+        )
+        if r.status_code not in (200, 201):
+            print(f"     [auth] appendix write failed ({r.status_code})")
+        else:
+            print(f"     [auth] {len(auth_signals)} signal(s) appended to auth appendix")
+    except Exception as e:
+        print(f"     [auth] failed to append: {e}")
 
 
 # ── Main ────────────────────────────────────────────────────────────────────
@@ -490,10 +718,25 @@ def process_page(page_id, brand, item, force=False, model=DEFAULT_MODEL):
         print(f"     Cleared {deleted} existing blocks")
 
     print("     Generating archive notes...")
-    content = generate_content(brand, item, page_description, model=model)
-    blocks  = build_blocks(content)
+    content, research_notes = generate_content(brand, item, page_description, model=model, page_id=page_id)
+
+    # ── Discrepancy check ─────────────────────────────────────────────────────
+    discrepancies = content.pop("discrepancies", [])
+    if discrepancies:
+        flag_for_verification(page_id, discrepancies)
+
+    # ── Build and write blocks ────────────────────────────────────────────────
+    blocks = build_blocks(content, research_notes=research_notes)
     append_blocks_to_page(page_id, blocks)
     print(f"     Written ({len(blocks)} blocks)")
+
+    # ── Authentication appendix ───────────────────────────────────────────────
+    if research_notes:
+        auth_signals = research_notes.get("authentication_signals", [])
+        sources = research_notes.get("sources", [])
+        if auth_signals:
+            append_auth_findings(page_id, brand, item["name"], auth_signals, sources)
+
     return "done"
 
 
