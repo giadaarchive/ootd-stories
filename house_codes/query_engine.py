@@ -38,9 +38,15 @@ TAXONOMY_PATH = os.path.join(_DIR, "taxonomy.json")
 # city: the fashion week city (for tag-walk URL)
 # brand_site_url: optional callable(period, year) → url for editorial text
 
+# ── Brand registry ───────────────────────────────────────────────────────────
+# BRAND_COVERAGE = curated cross-brand analysis set (broad trends queries)
+# BRAND_REGISTRY = all known brands for specific brand queries (brands_hint)
+# Any brand in REGISTRY but not COVERAGE is fetched only when explicitly asked about.
+# Slugs that 404 on tag-walk are skipped gracefully in _fetch_season.
+
 BRAND_COVERAGE = {
     "women": [
-        # Paris
+        # Paris — tier 1
         {"brand_id": "akris",           "name": "Akris",               "tagwalk_slug": "akris",               "city": "paris"},
         {"brand_id": "chanel",          "name": "Chanel",              "tagwalk_slug": "chanel",              "city": "paris"},
         {"brand_id": "dior",            "name": "Christian Dior",      "tagwalk_slug": "christian-dior",      "city": "paris"},
@@ -58,7 +64,30 @@ BRAND_COVERAGE = {
         {"brand_id": "stellamccartney", "name": "Stella McCartney",    "tagwalk_slug": "stella-mccartney",    "city": "paris"},
         {"brand_id": "toteme",          "name": "Toteme",              "tagwalk_slug": "toteme",              "city": "paris"},
         {"brand_id": "zimmermann",      "name": "Zimmermann",          "tagwalk_slug": "zimmermann",          "city": "paris"},
-        # Milan
+        # Paris — tier 2
+        {"brand_id": "balmain",         "name": "Balmain",             "tagwalk_slug": "balmain",             "city": "paris"},
+        {"brand_id": "ami",             "name": "AMI Alexandre Mattiussi", "tagwalk_slug": "ami",             "city": "paris"},
+        {"brand_id": "maisonmargiela",  "name": "Maison Margiela",     "tagwalk_slug": "maison-margiela",     "city": "paris"},
+        {"brand_id": "mugler",          "name": "Mugler",              "tagwalk_slug": "mugler",              "city": "paris"},
+        {"brand_id": "offwhite",        "name": "Off-White",           "tagwalk_slug": "off-white",           "city": "paris"},
+        {"brand_id": "schiaparelli",    "name": "Schiaparelli",        "tagwalk_slug": "schiaparelli",        "city": "paris"},
+        {"brand_id": "alaia",           "name": "Alaïa",               "tagwalk_slug": "alaia",               "city": "paris"},
+        {"brand_id": "courreges",       "name": "Courrèges",           "tagwalk_slug": "courreges",           "city": "paris"},
+        {"brand_id": "rickowens",       "name": "Rick Owens",          "tagwalk_slug": "rick-owens",          "city": "paris"},
+        {"brand_id": "sacai",           "name": "Sacai",               "tagwalk_slug": "sacai",               "city": "paris"},
+        {"brand_id": "lemaire",         "name": "Lemaire",             "tagwalk_slug": "lemaire",             "city": "paris"},
+        {"brand_id": "coperni",         "name": "Coperni",             "tagwalk_slug": "coperni",             "city": "paris"},
+        {"brand_id": "marineserre",     "name": "Marine Serre",        "tagwalk_slug": "marine-serre",        "city": "paris"},
+        {"brand_id": "driesvannoten",   "name": "Dries Van Noten",     "tagwalk_slug": "dries-van-noten",     "city": "paris"},
+        {"brand_id": "lanvin",          "name": "Lanvin",              "tagwalk_slug": "lanvin",              "city": "paris"},
+        {"brand_id": "kenzo",           "name": "Kenzo",               "tagwalk_slug": "kenzo",               "city": "paris"},
+        {"brand_id": "rabanne",         "name": "Rabanne",             "tagwalk_slug": "rabanne",             "city": "paris"},
+        {"brand_id": "rochas",          "name": "Rochas",              "tagwalk_slug": "rochas",              "city": "paris"},
+        {"brand_id": "isseymiyake",     "name": "Issey Miyake",        "tagwalk_slug": "issey-miyake",        "city": "paris"},
+        {"brand_id": "anndemeulem",     "name": "Ann Demeulemeester",  "tagwalk_slug": "ann-demeulemeester",  "city": "paris"},
+        {"brand_id": "yproject",        "name": "Y/Project",           "tagwalk_slug": "y-project",           "city": "paris"},
+        {"brand_id": "jacquemus",       "name": "Jacquemus",           "tagwalk_slug": "jacquemus",           "city": "paris"},
+        # Milan — tier 1
         {"brand_id": "prada",           "name": "Prada",               "tagwalk_slug": "prada",               "city": "milan"},
         {"brand_id": "bottegaveneta",   "name": "Bottega Veneta",      "tagwalk_slug": "bottega-veneta",      "city": "milan"},
         {"brand_id": "gucci",           "name": "Gucci",               "tagwalk_slug": "gucci",               "city": "milan"},
@@ -68,19 +97,66 @@ BRAND_COVERAGE = {
         {"brand_id": "marni",           "name": "Marni",               "tagwalk_slug": "marni",               "city": "milan"},
         {"brand_id": "jilsander",       "name": "Jil Sander",          "tagwalk_slug": "jil-sander",          "city": "milan"},
         {"brand_id": "versace",         "name": "Versace",             "tagwalk_slug": "versace",             "city": "milan"},
+        {"brand_id": "fendi",           "name": "Fendi",               "tagwalk_slug": "fendi",               "city": "milan"},
+        {"brand_id": "dolcegabbana",    "name": "Dolce & Gabbana",     "tagwalk_slug": "dolce-and-gabbana",   "city": "milan"},
+        {"brand_id": "armani",          "name": "Giorgio Armani",      "tagwalk_slug": "giorgio-armani",      "city": "milan"},
+        {"brand_id": "emporioarmani",   "name": "Emporio Armani",      "tagwalk_slug": "emporio-armani",      "city": "milan"},
+        {"brand_id": "missoni",         "name": "Missoni",             "tagwalk_slug": "missoni",             "city": "milan"},
+        {"brand_id": "albertaferretti", "name": "Alberta Ferretti",    "tagwalk_slug": "alberta-ferretti",    "city": "milan"},
+        {"brand_id": "moschino",        "name": "Moschino",            "tagwalk_slug": "moschino",            "city": "milan"},
+        {"brand_id": "blumarine",       "name": "Blumarine",           "tagwalk_slug": "blumarine",           "city": "milan"},
+        {"brand_id": "msgm",            "name": "MSGM",                "tagwalk_slug": "msgm",                "city": "milan"},
+        {"brand_id": "n21",             "name": "N.21",                "tagwalk_slug": "n21",                 "city": "milan"},
+        {"brand_id": "sportmax",        "name": "Sportmax",            "tagwalk_slug": "sportmax",            "city": "milan"},
         # London
         {"brand_id": "burberry",        "name": "Burberry",            "tagwalk_slug": "burberry",            "city": "london"},
         {"brand_id": "alexandermcqueen","name": "Alexander McQueen",   "tagwalk_slug": "alexander-mcqueen",   "city": "london"},
+        {"brand_id": "jwanderson",      "name": "JW Anderson",         "tagwalk_slug": "jw-anderson",         "city": "london"},
+        {"brand_id": "simonerocha",     "name": "Simone Rocha",        "tagwalk_slug": "simone-rocha",        "city": "london"},
+        {"brand_id": "erdem",           "name": "Erdem",               "tagwalk_slug": "erdem",               "city": "london"},
+        # New York
+        {"brand_id": "marcjacobs",      "name": "Marc Jacobs",         "tagwalk_slug": "marc-jacobs",         "city": "new-york"},
+        {"brand_id": "coach",           "name": "Coach",               "tagwalk_slug": "coach",               "city": "new-york"},
+        {"brand_id": "michaelkors",     "name": "Michael Kors",        "tagwalk_slug": "michael-kors",        "city": "new-york"},
+        {"brand_id": "ralphlaurentw",   "name": "Ralph Lauren",        "tagwalk_slug": "ralph-lauren",        "city": "new-york"},
+        {"brand_id": "proenzaschouler", "name": "Proenza Schouler",    "tagwalk_slug": "proenza-schouler",    "city": "new-york"},
+        {"brand_id": "thombrowne",      "name": "Thom Browne",         "tagwalk_slug": "thom-browne",         "city": "new-york"},
+        {"brand_id": "toryburch",       "name": "Tory Burch",          "tagwalk_slug": "tory-burch",          "city": "new-york"},
+        {"brand_id": "altuzarra",       "name": "Altuzarra",           "tagwalk_slug": "altuzarra",           "city": "new-york"},
     ],
     "men": [
+        # Paris
         {"brand_id": "dior_men",        "name": "Dior Men",            "tagwalk_slug": "dior-homme",          "city": "paris",  "gender_path": "man"},
         {"brand_id": "hermes_men",      "name": "Hermès Men",          "tagwalk_slug": "hermes",              "city": "paris",  "gender_path": "man"},
         {"brand_id": "lv_men",          "name": "Louis Vuitton Men",   "tagwalk_slug": "louis-vuitton",       "city": "paris",  "gender_path": "man"},
+        {"brand_id": "loewe_men",       "name": "Loewe Men",           "tagwalk_slug": "loewe",               "city": "paris",  "gender_path": "man"},
+        {"brand_id": "valentino_men",   "name": "Valentino Men",       "tagwalk_slug": "valentino",           "city": "paris",  "gender_path": "man"},
+        {"brand_id": "maisonmargiela_men","name": "Maison Margiela Men","tagwalk_slug": "maison-margiela",    "city": "paris",  "gender_path": "man"},
+        {"brand_id": "ami_men",         "name": "AMI Men",             "tagwalk_slug": "ami",                 "city": "paris",  "gender_path": "man"},
+        {"brand_id": "casablanca",      "name": "Casablanca",          "tagwalk_slug": "casablanca",          "city": "paris",  "gender_path": "man"},
+        {"brand_id": "driesvannoten_men","name": "Dries Van Noten Men","tagwalk_slug": "dries-van-noten",     "city": "paris",  "gender_path": "man"},
+        {"brand_id": "givenchy_men",    "name": "Givenchy Men",        "tagwalk_slug": "givenchy",            "city": "paris",  "gender_path": "man"},
+        {"brand_id": "lanvin_men",      "name": "Lanvin Men",          "tagwalk_slug": "lanvin",              "city": "paris",  "gender_path": "man"},
+        {"brand_id": "kenzo_men",       "name": "Kenzo Men",           "tagwalk_slug": "kenzo",               "city": "paris",  "gender_path": "man"},
+        {"brand_id": "lemaire_men",     "name": "Lemaire Men",         "tagwalk_slug": "lemaire",             "city": "paris",  "gender_path": "man"},
+        {"brand_id": "sacai_men",       "name": "Sacai Men",           "tagwalk_slug": "sacai",               "city": "paris",  "gender_path": "man"},
+        {"brand_id": "rickowens_men",   "name": "Rick Owens Men",      "tagwalk_slug": "rick-owens",          "city": "paris",  "gender_path": "man"},
+        # Milan
         {"brand_id": "prada_men",       "name": "Prada Men",           "tagwalk_slug": "prada",               "city": "milan",  "gender_path": "man"},
-        {"brand_id": "brunellocucinelli_men","name":"Brunello Cucinelli Men","tagwalk_slug":"brunello-cucinelli","city":"milan", "gender_path": "man"},
+        {"brand_id": "gucci_men",       "name": "Gucci Men",           "tagwalk_slug": "gucci",               "city": "milan",  "gender_path": "man"},
         {"brand_id": "zegna",           "name": "Zegna",               "tagwalk_slug": "ermenegildo-zegna",   "city": "milan",  "gender_path": "man"},
-        {"brand_id": "paulsmith",       "name": "Paul Smith",          "tagwalk_slug": "paul-smith",          "city": "milan",  "gender_path": "man"},
+        {"brand_id": "brunellocucinelli_men","name":"Brunello Cucinelli Men","tagwalk_slug":"brunello-cucinelli","city":"milan", "gender_path": "man"},
+        {"brand_id": "kiton_men",       "name": "Kiton Men",           "tagwalk_slug": "kiton",               "city": "milan",  "gender_path": "man"},
+        {"brand_id": "ferragamo_men",   "name": "Ferragamo Men",       "tagwalk_slug": "ferragamo",           "city": "milan",  "gender_path": "man"},
+        {"brand_id": "canali",          "name": "Canali",              "tagwalk_slug": "canali",              "city": "milan",  "gender_path": "man"},
+        {"brand_id": "fendi_men",       "name": "Fendi Men",           "tagwalk_slug": "fendi",               "city": "milan",  "gender_path": "man"},
+        {"brand_id": "dolcegabbana_men","name": "Dolce & Gabbana Men", "tagwalk_slug": "dolce-and-gabbana",   "city": "milan",  "gender_path": "man"},
+        {"brand_id": "versace_men",     "name": "Versace Men",         "tagwalk_slug": "versace",             "city": "milan",  "gender_path": "man"},
+        {"brand_id": "marni_men",       "name": "Marni Men",           "tagwalk_slug": "marni",               "city": "milan",  "gender_path": "man"},
+        # London / New York
         {"brand_id": "burberry_men",    "name": "Burberry Men",        "tagwalk_slug": "burberry",            "city": "london", "gender_path": "man"},
+        {"brand_id": "paulsmith",       "name": "Paul Smith",          "tagwalk_slug": "paul-smith",          "city": "london", "gender_path": "man"},
+        {"brand_id": "thombrowne_men",  "name": "Thom Browne Men",     "tagwalk_slug": "thom-browne",         "city": "new-york","gender_path": "man"},
     ],
 }
 # deduplicate women's list
@@ -319,6 +395,26 @@ Keep the answer under 200 words unless the question requires more detail.\
 
 cache_mod.TTL["answer"] = 30  # answers cached 30 days
 
+# Ambiguity thresholds — loosen as graph grows
+_AMBIGUITY_MIN_BRANDS   = 3   # fewer than this → escalate to Claude
+_AMBIGUITY_MIN_CODES    = 5   # fewer than this → escalate to Claude
+
+ESCALATION_SYSTEM = """\
+You are a senior fashion analyst reviewing a synthesis that may be based on limited or conflicting data.
+
+The Qwen model produced an initial answer. Your job:
+1. Assess whether the evidence is genuinely strong enough to support confident claims
+2. Where the data is thin (1-2 brands only), reframe as "early signals" rather than "dominant trends"
+3. Where data is solid across 3+ brands, confirm the claim confidently
+4. Keep under 200 words. Cite brands. Be direct.\
+"""
+
+def _is_ambiguous(codes):
+    """True if synthesis result may be unreliable due to thin cross-brand evidence."""
+    brand_count = len({c["brand"] for c in codes})
+    return brand_count < _AMBIGUITY_MIN_BRANDS or len(codes) < _AMBIGUITY_MIN_CODES
+
+
 def _answer_cache_key(categories, season_key, gender, brands_hint):
     """Stable cache key from intent — same question phrased differently hits same cache."""
     import hashlib
@@ -352,6 +448,19 @@ def synthesize(question, codes, synthesis_instruction, cache_key=None):
     )
 
     result = llm_module.call(SYNTHESIZE_SYSTEM, user_msg, max_tokens=600, model=model)
+
+    # Escalate to Claude if data is thin / ambiguous
+    if _is_ambiguous(codes):
+        import sys
+        brand_count = len({c["brand"] for c in codes})
+        print(f"     [escalate] ambiguous ({brand_count} brands, {len(codes)} codes) → Claude review", file=sys.stderr)
+        escalation_user = (
+            f"Question: {question}\n\n"
+            f"Qwen synthesis (based on {brand_count} brands, {len(codes)} codes):\n{result}\n\n"
+            f"Raw data:\n{codes_text}"
+        )
+        result = llm_module.call(ESCALATION_SYSTEM, escalation_user, max_tokens=600, model="claude-sonnet-4-6")
+
     if cache_key and result:
         cache_mod.set("answer", cache_key, result, ttl_days=30)
     return result

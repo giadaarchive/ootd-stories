@@ -18,8 +18,40 @@ Environment variables required:
 """
 
 import os
+import sys
 import anthropic
 from openai import OpenAI
+
+# ── Cost tracking (backend only — printed to stderr, never reaches frontend) ──
+
+_COST_PER_MILLION = {
+    # Anthropic
+    "claude-sonnet-4-6":        {"in": 3.00,   "out": 15.00},
+    "claude-haiku-4-5-20251001":{"in": 0.25,   "out": 1.25},
+    "claude-opus-4-7":          {"in": 15.00,  "out": 75.00},
+    # OpenRouter — open-source
+    "qwen/qwen-2.5-72b-instruct":     {"in": 0.36, "out": 0.36},
+    "qwen/qwen2.5-vl-72b-instruct":   {"in": 0.25, "out": 0.25},
+    "meta-llama/llama-3.3-70b-instruct": {"in": 0.10, "out": 0.10},
+    "deepseek/deepseek-chat":          {"in": 0.14, "out": 0.28},
+    "mistralai/mistral-large":         {"in": 2.00, "out": 6.00},
+    "google/gemma-3-27b-it":           {"in": 0.10, "out": 0.20},
+}
+
+_session_cost = {"usd": 0.0, "calls": 0}
+
+
+def _log_cost(model, tokens_in, tokens_out):
+    pricing = _COST_PER_MILLION.get(model, {"in": 0.0, "out": 0.0})
+    cost = (tokens_in * pricing["in"] + tokens_out * pricing["out"]) / 1_000_000
+    _session_cost["usd"] += cost
+    _session_cost["calls"] += 1
+    print(f"     Cost: ${cost:.5f}  (session total: ${_session_cost['usd']:.4f}, {_session_cost['calls']} calls)", file=sys.stderr)
+
+
+def session_cost():
+    """Return current session cost dict."""
+    return dict(_session_cost)
 
 # ── Clients (lazy-init to avoid KeyError if key not set) ────────────────────
 
@@ -93,6 +125,7 @@ def call(system, user, max_tokens, model=DEFAULT_MODEL):
         )
         u = msg.usage
         print(f"     Tokens: {u.input_tokens} in / {u.output_tokens} out  [{model}]")
+        _log_cost(model, u.input_tokens, u.output_tokens)
         return msg.content[0].text.strip()
 
     else:
@@ -106,6 +139,7 @@ def call(system, user, max_tokens, model=DEFAULT_MODEL):
         )
         u = resp.usage
         print(f"     Tokens: {u.prompt_tokens} in / {u.completion_tokens} out  [{model}]")
+        _log_cost(model, u.prompt_tokens, u.completion_tokens)
         return resp.choices[0].message.content.strip()
 
 
@@ -137,6 +171,7 @@ def call_vision(system, user_text, image_urls, max_tokens, model=DEFAULT_MODEL):
         )
         u = msg.usage
         print(f"     Tokens: {u.input_tokens} in / {u.output_tokens} out  [{model}]  [{len(image_urls)} images]")
+        _log_cost(model, u.input_tokens, u.output_tokens)
         return msg.content[0].text.strip()
 
     else:
@@ -153,6 +188,7 @@ def call_vision(system, user_text, image_urls, max_tokens, model=DEFAULT_MODEL):
                 )
                 u = resp.usage
                 print(f"     Tokens: {u.prompt_tokens} in / {u.completion_tokens} out  [{model}]  [{len(image_urls)} images]")
+                _log_cost(model, u.prompt_tokens, u.completion_tokens)
                 return resp.choices[0].message.content.strip()
             except Exception as e:
                 if attempt < 2:

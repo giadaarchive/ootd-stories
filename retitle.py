@@ -28,7 +28,7 @@ NOTION_HEADERS   = {
     "Content-Type": "application/json",
 }
 
-DEFAULT_MODEL = llm_module.DEFAULT_MODEL
+DEFAULT_MODEL = "qwen/qwen-2.5-72b-instruct"  # structured title generation — Qwen matches Claude quality at fraction of cost
 MODEL_ALIASES = llm_module.MODEL_ALIASES
 
 HERITAGE_MARKER = "Heritage & House Notes"

@@ -78,7 +78,9 @@ DESIGNER_ERAS = {
 HERITAGE_MARKER  = "Heritage & House Notes"
 CHECKPOINT_FILE  = os.path.join(os.path.dirname(os.path.abspath(__file__)), "heritage_checkpoint.json")
 
-DEFAULT_MODEL = llm_module.DEFAULT_MODEL
+DRAFT_MODEL  = "qwen/qwen-2.5-72b-instruct"   # writes the four sections
+REVIEW_MODEL = "claude-sonnet-4-6"             # edits for accuracy + voice
+DEFAULT_MODEL = DRAFT_MODEL                     # --model flag overrides both
 MODEL_ALIASES = llm_module.MODEL_ALIASES
 
 SYSTEM_PROMPT = """\
@@ -124,6 +126,19 @@ No bullet points or sub-headers inside values.
   production differs from earlier and later output.
 
 Total across all four keys: 500–700 words.
+Return only valid JSON, nothing else.\
+"""
+
+REVIEW_PROMPT = """\
+You are editing a heritage document for a luxury fashion archive. A draft has been written —
+your job is to refine it, not rewrite it.
+
+Fix only:
+- Factual overclaims (if the draft speculates about specific dates/CDs without evidence, soften)
+- Generic house-history sentences that aren't about this specific piece (make them piece-specific)
+- Awkward phrasing or repetition between sections
+
+Keep what works. Return the same JSON structure with identical keys.
 Return only valid JSON, nothing else.\
 """
 
@@ -371,16 +386,36 @@ def build_user_prompt(brand, item, era_context, page_description=""):
 
 # ── Content generation ──────────────────────────────────────────────────────
 
-def generate_content(brand, item, page_description="", model=DEFAULT_MODEL):
-    era_ctx  = DESIGNER_ERAS.get(brand, "")
-    user_msg = build_user_prompt(brand, item, era_ctx, page_description)
-    raw = llm_module.call(SYSTEM_PROMPT, user_msg, max_tokens=1800, model=model)
+def _parse_json(raw):
     if raw.startswith("```"):
         raw = raw.split("```", 2)[1]
         if raw.startswith("json"):
             raw = raw[4:]
         raw = raw.rsplit("```", 1)[0].strip()
     return json.loads(raw)
+
+
+def generate_content(brand, item, page_description="", model=DEFAULT_MODEL):
+    era_ctx  = DESIGNER_ERAS.get(brand, "")
+    user_msg = build_user_prompt(brand, item, era_ctx, page_description)
+
+    # Pass 1: Qwen drafts
+    draft_model = DRAFT_MODEL if model == DEFAULT_MODEL else model
+    print(f"     [draft] {draft_model}")
+    raw = llm_module.call(SYSTEM_PROMPT, user_msg, max_tokens=1800, model=draft_model)
+    draft = _parse_json(raw)
+
+    # Pass 2: Claude reviews (only when using the default two-pass pipeline)
+    if model == DEFAULT_MODEL:
+        review_user = (
+            f"Original item context:\n{user_msg}\n\n"
+            f"Draft to review:\n{json.dumps(draft, indent=2)}"
+        )
+        print(f"     [review] {REVIEW_MODEL}")
+        raw2 = llm_module.call(REVIEW_PROMPT, review_user, max_tokens=1800, model=REVIEW_MODEL)
+        return _parse_json(raw2)
+
+    return draft
 
 
 # ── Block builders ──────────────────────────────────────────────────────────
