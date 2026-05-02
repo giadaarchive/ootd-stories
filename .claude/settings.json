@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /Users/lisa/lookbook-stories/.claude/stop-hook.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

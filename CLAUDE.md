@@ -1,5 +1,17 @@
 # CLAUDE.md — lookbook-stories (giadaarchive/ootd-stories)
 
+## Git discipline
+
+**Atomic commits.** Commit after every self-contained change — one fix, one feature,
+one refactor. Never batch unrelated changes into one commit. Prefer 5 small commits
+over 1 large one. Commit messages: imperative, lowercase, under 72 chars.
+
+**Push reminder.** At the end of every session, tell the user how many unpushed commits
+exist and remind them to run `git push origin main`. Do not leave work local.
+
+A stop hook at `.claude/stop-hook.sh` auto-commits any uncommitted work when Claude
+stops and prints the push reminder automatically.
+
 ## What this repo is
 Scripts + docs for Lisa's personal fashion archive "Second Best". Notion-backed system. Not a product — a personal archive in maintenance mode (no new acquisitions).
 
