@@ -177,7 +177,7 @@ def get_items_for_designer(designer_id):
             body["start_cursor"] = cursor
         r = requests.post(
             f"https://api.notion.com/v1/databases/{COLLECTION_DB_ID}/query",
-            headers=NOTION_HEADERS, json=body,
+            headers=NOTION_HEADERS, json=body, timeout=30,
         )
         r.raise_for_status()
         d = r.json()
@@ -197,6 +197,7 @@ def get_recent_items(n):
             "page_size": n,
             "sorts": [{"timestamp": "created_time", "direction": "descending"}],
         },
+        timeout=30,
     )
     r.raise_for_status()
     return r.json().get("results", [])
@@ -219,7 +220,7 @@ def iter_items_from_checkpoint(before_time=None):
             body["start_cursor"] = cursor
         r = requests.post(
             f"https://api.notion.com/v1/databases/{COLLECTION_DB_ID}/query",
-            headers=NOTION_HEADERS, json=body,
+            headers=NOTION_HEADERS, json=body, timeout=30,
         )
         r.raise_for_status()
         d = r.json()
@@ -246,7 +247,7 @@ def get_all_blocks(page_id):
         url = f"https://api.notion.com/v1/blocks/{page_id}/children"
         if cursor:
             url += f"?start_cursor={cursor}"
-        r = requests.get(url, headers=NOTION_HEADERS)
+        r = requests.get(url, headers=NOTION_HEADERS, timeout=30)
         r.raise_for_status()
         d = r.json()
         blocks.extend(d.get("results", []))
@@ -355,6 +356,7 @@ def append_blocks_to_page(page_id, blocks):
             f"https://api.notion.com/v1/blocks/{page_id}/children",
             headers=NOTION_HEADERS,
             json={"children": blocks[i : i + 100]},
+            timeout=30,
         )
         if r.status_code not in (200, 201):
             raise RuntimeError(f"Block append failed ({r.status_code}): {r.text[:300]}")
@@ -446,7 +448,10 @@ def _parse_json(raw):
         if raw.startswith("json"):
             raw = raw[4:]
         raw = raw.rsplit("```", 1)[0].strip()
-    return json.loads(raw)
+    result = json.loads(raw)
+    if isinstance(result, list):
+        result = result[0] if result else {}
+    return result
 
 
 def get_page_image_urls(page_id):
@@ -653,6 +658,7 @@ def flag_for_verification(page_id, discrepancies):
             f"https://api.notion.com/v1/blocks/{page_id}/children",
             headers=NOTION_HEADERS,
             json={"children": [callout]},
+            timeout=30,
         )
         if r.status_code not in (200, 201):
             print(f"     [flag] warning: callout block failed ({r.status_code})")
@@ -689,6 +695,7 @@ def append_auth_findings(page_id, brand, item_name, auth_signals, sources):
             f"https://api.notion.com/v1/blocks/{AUTH_APPENDIX_ID}/children",
             headers=NOTION_HEADERS,
             json={"children": blocks},
+            timeout=30,
         )
         if r.status_code not in (200, 201):
             print(f"     [auth] appendix write failed ({r.status_code})")
@@ -762,6 +769,7 @@ def main():
         r = requests.get(
             f"https://api.notion.com/v1/pages/{force_page_id}",
             headers=NOTION_HEADERS,
+            timeout=30,
         )
         r.raise_for_status()
         page = r.json()
