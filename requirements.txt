@@ -3,3 +3,5 @@ requests
 python-dotenv
 Pillow
 pyotp
+openai
+python-telegram-bot>=20.0
