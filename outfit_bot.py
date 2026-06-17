@@ -11,9 +11,10 @@ Commands:
     /help        — command list
 """
 
-import os, sys, base64, asyncio, traceback
+import os, sys, base64, asyncio, traceback, json
 from io import BytesIO
 from datetime import date
+from pathlib import Path
 from html import escape
 
 from telegram import (
@@ -42,6 +43,41 @@ import vision_matcher
 import notion_writer
 
 TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
+
+# ── Always-worn items ─────────────────────────────────────────────────────────
+ALWAYS_WORN_FILE = Path(__file__).parent / "always_worn.json"
+
+def _load_always_worn() -> list[dict]:
+    """Load always-worn item list from config file."""
+    try:
+        data = json.loads(ALWAYS_WORN_FILE.read_text())
+        return data.get("items", [])
+    except Exception:
+        return []
+
+def _save_always_worn(items: list[dict]):
+    data = json.loads(ALWAYS_WORN_FILE.read_text()) if ALWAYS_WORN_FILE.exists() else {}
+    data["items"] = items
+    ALWAYS_WORN_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+
+def _always_worn_as_decisions(catalog: list[dict]) -> list[dict]:
+    """
+    Build pre-approved decision dicts for each always-worn item.
+    Returns list of decisions ready to prepend to the session's decisions list.
+    """
+    always = _load_always_worn()
+    decisions = []
+    for aw in always:
+        item_id = aw["id"]
+        item = next((c for c in catalog if c["id"] == item_id), None)
+        if item:
+            decisions.append({
+                "action": "approved",
+                "item_id": item_id,
+                "item_name": item["name"],
+                "always_worn": True,
+            })
+    return decisions
 
 # ── Per-user session state ────────────────────────────────────────────────────
 _sessions: dict[int, dict] = {}
@@ -161,15 +197,24 @@ def _build_item_card(result: dict, idx: int, total: int, decision: dict | None =
 def _build_summary(session: dict) -> str:
     results = session["results"]
     decisions = session["decisions"]
+    always = session.get("always_worn_decisions", [])
+
     approved = [(r, d) for r, d in zip(results, decisions) if d and d["action"] in ("approved", "changed")]
     skipped = [r for r, d in zip(results, decisions) if d and d["action"] == "skipped"]
 
     lines = ["<b>Review Summary</b>\n"]
+
+    # Always-worn items first
+    if always:
+        for d in always:
+            item_id = d.get("item_id", "")
+            url = f"https://www.notion.so/{item_id.replace('-', '')}"
+            lines.append(f'💍 <a href="{url}">{_esc(d["item_name"])}</a> <i>(daily)</i>')
+
     for r, d in approved:
         item_name = d.get("item_name") or r["top_matches"][0]["item"]["name"]
         item_id = d.get("item_id", "")
         if item_id:
-            # Find item in results to get full item dict for URL
             url = f"https://www.notion.so/{item_id.replace('-', '')}"
             lines.append(f'✅ <a href="{url}">{_esc(item_name)}</a>')
         else:
@@ -177,8 +222,9 @@ def _build_summary(session: dict) -> str:
     for r in skipped:
         lines.append(f"⏭️ <i>{_esc(r['identified']['type'])} — skipped</i>")
 
+    total = len(always) + len(approved)
     lines.append(f"\n<b>Date:</b> {session['date']}")
-    lines.append(f"<b>Items to link:</b> {len(approved)}")
+    lines.append(f"<b>Items to link:</b> {total}")
     return "\n".join(lines)
 
 
@@ -218,6 +264,73 @@ async def cmd_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     except ValueError:
         await update.message.reply_text("Invalid date. Use format: YYYY-MM-DD (e.g. /date 2026-06-15)")
+
+
+async def cmd_always(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /always           — list current always-worn items
+    /always add <query> — search and add an item
+    /always remove <query> — remove an item by name
+    /always clear     — remove all
+    """
+    args = context.args
+    catalog = collection_cache.load()
+
+    if not args or args[0] == "list":
+        items = _load_always_worn()
+        if not items:
+            await update.message.reply_text(
+                "No always-worn items set.\n\nUse /always add <search> to add one.\nE.g. /always add cartier necklace"
+            )
+            return
+        lines = ["<b>Always-worn items (added to every OOTD):</b>\n"]
+        for i, aw in enumerate(items, 1):
+            url = f"https://www.notion.so/{aw['id'].replace('-', '')}"
+            lines.append(f'{i}. <a href="{url}">{_esc(aw["name"])}</a>')
+        lines.append("\n/always add &lt;search&gt; — add item\n/always remove &lt;name&gt; — remove item")
+        await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+        return
+
+    if args[0] == "clear":
+        _save_always_worn([])
+        await update.message.reply_text("Always-worn list cleared.")
+        return
+
+    if args[0] == "add":
+        query = " ".join(args[1:]).lower()
+        if not query:
+            await update.message.reply_text("Usage: /always add <search term>")
+            return
+        matches = [
+            c for c in catalog
+            if query in c["name"].lower() or query in c.get("designer", "").lower()
+        ][:6]
+        if not matches:
+            await update.message.reply_text(f"No items found for '{query}'.")
+            return
+        buttons = [
+            [InlineKeyboardButton(
+                f"{m['name'][:40]} ({m.get('designer', '')[:12]})",
+                callback_data=f"always_add:{m['id']}"
+            )]
+            for m in matches
+        ]
+        await update.message.reply_text(
+            f"Select item to always include:",
+            reply_markup=InlineKeyboardMarkup(buttons),
+        )
+        return
+
+    if args[0] == "remove":
+        query = " ".join(args[1:]).lower()
+        items = _load_always_worn()
+        new_items = [i for i in items if query not in i["name"].lower()]
+        removed = len(items) - len(new_items)
+        _save_always_worn(new_items)
+        await update.message.reply_text(f"Removed {removed} item(s). Use /always to see current list.")
+        return
+
+    await update.message.reply_text("Usage: /always | /always add <search> | /always remove <name> | /always clear")
 
 
 async def cmd_refresh(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -280,11 +393,15 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.edit_text("Could not identify any items. Try a clearer photo.")
         return
 
+    # Build always-worn pre-approvals (these don't need review)
+    always_decisions = _always_worn_as_decisions(catalog)
+
     _sessions[user_id] = {
         "image_bytes": raw_bytes,
         "date": outfit_date,
         "results": results,
         "decisions": [None] * len(results),
+        "always_worn_decisions": always_decisions,
     }
 
     matched = sum(1 for r in results if r["status"] == "matched")
@@ -428,6 +545,28 @@ async def handle_search_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
     )
 
 
+async def handle_always_add_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    item_id = query.data.split(":", 1)[1]
+    catalog = collection_cache.load()
+    item = next((c for c in catalog if c["id"] == item_id), None)
+    if not item:
+        await query.edit_message_text("Item not found in cache. Try /refresh then retry.")
+        return
+    items = _load_always_worn()
+    if any(i["id"] == item_id for i in items):
+        await query.edit_message_text(f"{item['name']} is already in your always-worn list.")
+        return
+    items.append({"id": item_id, "name": item["name"]})
+    _save_always_worn(items)
+    url = f"https://www.notion.so/{item_id.replace('-', '')}"
+    await query.edit_message_text(
+        f'💍 Added: <a href="{url}">{_esc(item["name"])}</a>\n\nThis will be included in every OOTD entry.',
+        parse_mode=ParseMode.HTML,
+    )
+
+
 async def handle_pick_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -465,11 +604,17 @@ async def _do_confirm(query, session: dict, user_id: int):
         return
 
     decisions = session["decisions"]
-    item_ids = [
+    always = session.get("always_worn_decisions", [])
+
+    always_ids = [d["item_id"] for d in always if d.get("item_id")]
+    reviewed_ids = [
         d["item_id"]
         for d in decisions
         if d and d["action"] in ("approved", "changed") and d.get("item_id")
     ]
+    # Merge: always-worn first, then reviewed items (deduplicate)
+    seen = set(always_ids)
+    item_ids = always_ids + [i for i in reviewed_ids if i not in seen]
 
     if not item_ids:
         await query.edit_message_text("No items approved. Nothing to log.")
@@ -529,8 +674,10 @@ def main():
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CommandHandler("date", cmd_date))
     app.add_handler(CommandHandler("refresh", cmd_refresh))
+    app.add_handler(CommandHandler("always", cmd_always))
 
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    app.add_handler(CallbackQueryHandler(handle_always_add_callback, pattern=r"^always_add:"))
     app.add_handler(CallbackQueryHandler(handle_pick_callback, pattern=r"^pick:"))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_search_text))
