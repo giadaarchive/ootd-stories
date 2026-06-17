@@ -1,4 +1,14 @@
 {
   "note": "Items added to every OOTD entry automatically. Edit via /always command or directly here.",
-  "items": []
+  "items": [
+    {"id": "214ccd15-cda1-8027-9d3f-e0df06268779", "name": "Diamond Bracelet Unbranded Silver"},
+    {"id": "2caccd15-cda1-804c-ac95-e2b662ceec0f", "name": "Gold 24K Plated Stainless Steel Herringbone Necklace Unbranded Gold"},
+    {"id": "2f4ccd15-cda1-808d-9b63-c4965bdc8084", "name": "Blackwood wood hairstick"},
+    {"id": "2d1ccd15-cda1-80a0-ad42-d4f404b05f22", "name": "Gold 24K Necklace with penny pendant Gold"},
+    {"id": "2d5ccd15-cda1-804c-8db9-cd48a7769ceb", "name": "Gold 24k Bracelet Gold (x4)"},
+    {"id": "2d5ccd15-cda1-80b2-8d22-f4b3627e4ef3", "name": "Gold 24K Eggplant Necklace Unbranded Gold"},
+    {"id": "2d5ccd15-cda1-80e9-bdee-ebd147378ee3", "name": "Gold 24K Plated Chick pendant Gold"},
+    {"id": "2d7ccd15-cda1-8008-99c1-d7d1f2ec50c5", "name": "White Gold Cartier Love Circle necklace (two interlocking circles) Cartier Silver"},
+    {"id": "33dccd15-cda1-8020-a330-c4146de666bf", "name": "9k gold and platinum chain bracelet"}
+  ]
 }
