@@ -12,7 +12,7 @@ Step 2 — match_items(identified, catalog):
     Returns [{identified, top_matches: [{item, confidence, reasoning}], status}]
 """
 
-import json, base64, sys, os
+import json, base64, sys, os, re
 import anthropic
 from dotenv import load_dotenv
 load_dotenv()
@@ -47,15 +47,24 @@ You are a luxury wardrobe curator. You will receive a description of one clothin
 
 Select the best match and return your reasoning. If no candidate is a reasonable match, say so.
 
-Return a JSON object with key "matches" — an array of up to 3 candidates ranked by likelihood:
+Return ONLY a raw JSON object — no markdown, no code fences, no explanation. Just the JSON.
 {"matches": [
   {"candidate_index": 0, "confidence": 0.92, "reasoning": "Navy double-breasted cut matches exactly"},
   {"candidate_index": 2, "confidence": 0.55, "reasoning": "Also navy blazer but different silhouette"}
 ]}
 
-Confidence: 0.0–1.0. If best match confidence < 0.4, return empty array.
-No markdown, no explanation.
+Confidence: 0.0–1.0. If best match confidence < 0.4, return {"matches": []}.
+Output raw JSON only. No ```json wrapper.
 """
+
+
+def _parse_json(raw: str) -> dict:
+    """Parse JSON from model response, stripping markdown code fences if present."""
+    raw = raw.strip()
+    # Strip ```json ... ``` or ``` ... ``` wrappers
+    raw = re.sub(r'^```(?:json)?\s*', '', raw)
+    raw = re.sub(r'\s*```\s*$', '', raw)
+    return json.loads(raw.strip())
 
 
 def identify_items(image_b64: str) -> list[dict]:
@@ -86,9 +95,9 @@ def identify_items(image_b64: str) -> list[dict]:
     raw = msg.content[0].text.strip()
     print(f"  Identify tokens: {msg.usage.input_tokens} in / {msg.usage.output_tokens} out", file=sys.stderr)
     try:
-        return json.loads(raw).get("items", [])
-    except json.JSONDecodeError:
-        print(f"  [warn] JSON parse failed for identify step: {raw[:200]}", file=sys.stderr)
+        return _parse_json(raw).get("items", [])
+    except (json.JSONDecodeError, ValueError) as e:
+        print(f"  [warn] JSON parse failed for identify step: {e} — {raw[:200]}", file=sys.stderr)
         return []
 
 
@@ -125,9 +134,9 @@ def match_item(identified: dict, candidates: list[dict]) -> list[dict]:
     print(f"  Match tokens: {msg.usage.input_tokens} in / {msg.usage.output_tokens} out", file=sys.stderr)
 
     try:
-        ranked = json.loads(raw).get("matches", [])
-    except json.JSONDecodeError:
-        print(f"  [warn] JSON parse failed for match step: {raw[:200]}", file=sys.stderr)
+        ranked = _parse_json(raw).get("matches", [])
+    except (json.JSONDecodeError, ValueError) as e:
+        print(f"  [warn] JSON parse failed for match step: {e} — {raw[:200]}", file=sys.stderr)
         return []
 
     results = []
