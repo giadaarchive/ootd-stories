@@ -30,6 +30,7 @@ from telegram.ext import (
     filters,
 )
 from telegram.constants import ParseMode
+from telegram.request import HTTPXRequest
 from PIL import Image
 from PIL.ExifTags import TAGS
 from dotenv import load_dotenv
@@ -232,6 +233,8 @@ async def cmd_refresh(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
+    print(f"[photo] from user {user_id} in chat {chat_id}", flush=True)
     msg = await update.message.reply_text("📸 Received. Downloading...")
 
     # Get highest-res version
@@ -519,7 +522,8 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
-    app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+    request = HTTPXRequest(read_timeout=60, connect_timeout=20, write_timeout=60, media_write_timeout=60)
+    app = Application.builder().token(TELEGRAM_BOT_TOKEN).request(request).build()
 
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("help", cmd_help))
@@ -534,7 +538,7 @@ def main():
     app.add_error_handler(error_handler)
 
     print("WIS Outfit Bot starting...", flush=True)
-    app.run_polling(drop_pending_updates=True)
+    app.run_polling(drop_pending_updates=False, allowed_updates=Update.ALL_TYPES)
 
 
 if __name__ == "__main__":
