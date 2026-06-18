@@ -766,13 +766,13 @@ async def handle_pick_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     await _show_next_item(query.message, session, user_id)
 
 
-async def _generate_story_bg(chat_id: int, page_id: str, image_urls: list[str], bot):
-    """Generate OOTD story in background and write to Notion page."""
+async def _generate_story_bg(chat_id: int, page_id: str, all_images: list[bytes], bot):
+    """Generate OOTD story from raw image bytes and write to Notion page."""
     try:
         msg = await bot.send_message(chat_id, "✍️ Generating OOTD story...")
         loop = asyncio.get_event_loop()
         story = await loop.run_in_executor(
-            None, lookbook_mod.generate_story, image_urls[:3]
+            None, lookbook_mod.generate_story_from_bytes, all_images
         )
         if story:
             await loop.run_in_executor(None, lookbook_mod.write_story, page_id, story)
@@ -837,8 +837,9 @@ async def _do_confirm(query, session: dict, user_id: int):
         f"⏳ Uploading {n_photos} photo{'s' if n_photos > 1 else ''} and creating Notion entry..."
     )
 
-    # Upload each photo to GitHub and collect URLs
     loop = asyncio.get_event_loop()
+
+    # Upload all photos, collect public URLs
     image_urls: list[str] = []
     for i, img_bytes in enumerate(all_images):
         suffix = f"_{i+1}" if n_photos > 1 else ""
@@ -855,7 +856,10 @@ async def _do_confirm(query, session: dict, user_id: int):
         )
         clean_id = page_id.replace("-", "")
         notion_url = f"https://www.notion.so/{clean_id}"
-        img_note = f"📷 {len(image_urls)} photo{'s' if len(image_urls) > 1 else ''} uploaded" if image_urls else "📷 Image: no hosting configured"
+        img_note = (
+            f"📷 {len(image_urls)} photo{'s' if len(image_urls) > 1 else ''} added"
+            if image_urls else "📷 Image upload failed"
+        )
         await query.edit_message_text(
             f"✅ <b>Logged!</b>\n\n"
             f"📅 {outfit_date}\n"
@@ -871,10 +875,10 @@ async def _do_confirm(query, session: dict, user_id: int):
 
     _sessions.pop(user_id, None)
 
-    # Background story generation (takes 20-30s — don't block the user)
-    if image_urls:
+    # Background story generation — uses raw bytes, no external URL needed
+    if all_images:
         chat_id = query.message.chat_id
-        asyncio.create_task(_generate_story_bg(chat_id, page_id, image_urls, query._bot))
+        asyncio.create_task(_generate_story_bg(chat_id, page_id, all_images, query._bot))
 
 
 # ── Error handler ─────────────────────────────────────────────────────────────

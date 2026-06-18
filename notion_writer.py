@@ -101,9 +101,37 @@ def upload_to_imgur(image_bytes: bytes) -> str | None:
     return None
 
 
-def host_image(image_bytes: bytes, date_str: str, suffix: str = "") -> str | None:
-    """Try GitHub first, fall back to Imgur."""
-    url = upload_to_github(image_bytes, date_str, suffix)
+def upload_to_freeimage(image_bytes: bytes) -> str | None:
+    """
+    Upload to freeimage.host — anonymous, permanent URLs, no account needed.
+    Returns direct image URL or None.
+    """
+    b64 = base64.b64encode(image_bytes).decode()
+    r = requests.post(
+        "https://freeimage.host/api/1/upload",
+        data={
+            "key": "6d207e02198a847aa98d0a2a901485a5",  # public demo key
+            "source": b64,
+            "format": "json",
+        },
+        timeout=30,
+    )
+    if r.status_code == 200:
+        url = r.json().get("image", {}).get("url")
+        if url:
+            print(f"  [image] uploaded to freeimage: {url}")
+            return url
+    print(f"  [image] freeimage upload failed: {r.status_code} {r.text[:200]}")
+    return None
+
+
+def host_image(image_bytes: bytes, date_str: str = "", suffix: str = "") -> str | None:
+    """Try GitHub, then freeimage.host, then Imgur."""
+    if date_str:
+        url = upload_to_github(image_bytes, date_str, suffix)
+        if url:
+            return url
+    url = upload_to_freeimage(image_bytes)
     if url:
         return url
     return upload_to_imgur(image_bytes)
@@ -112,14 +140,14 @@ def host_image(image_bytes: bytes, date_str: str, suffix: str = "") -> str | Non
 def create_ootd_entry(
     date_str: str,
     item_ids: list[str],
-    image_url: str | None = None,
+    image_urls: list[str] | None = None,
 ) -> str:
     """
     Create an OOTD page in Notion.
 
-    date_str: ISO date "YYYY-MM-DD"
-    item_ids: list of Collection page IDs to link via Items Worn
-    image_url: public image URL to embed as first block (optional)
+    date_str:   ISO date "YYYY-MM-DD"
+    item_ids:   Collection page IDs to link via Items relation
+    image_urls: list of public URLs — each becomes an image block on the page
 
     Returns the new page ID.
     """
@@ -136,16 +164,14 @@ def create_ootd_entry(
         "properties": properties,
     }
 
-    if image_url:
+    if image_urls:
         body["children"] = [
             {
                 "object": "block",
                 "type": "image",
-                "image": {
-                    "type": "external",
-                    "external": {"url": image_url},
-                },
+                "image": {"type": "external", "external": {"url": url}},
             }
+            for url in image_urls
         ]
 
     r = requests.post(

@@ -164,6 +164,50 @@ def generate_story(image_urls):
     return None
 
 
+def generate_story_from_bytes(image_bytes_list: list[bytes]):
+    """
+    Generate an OOTD story from raw image bytes (no URL download needed).
+    image_bytes_list: list of JPEG bytes, up to MAX_IMAGES_PER_ENTRY used.
+    """
+    content = []
+    for img_bytes in image_bytes_list[:MAX_IMAGES_PER_ENTRY]:
+        try:
+            img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+            if max(img.width, img.height) > 1600:
+                img.thumbnail((1600, 1600), Image.LANCZOS)
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=85)
+            data = base64.standard_b64encode(buf.getvalue()).decode()
+            content.append({
+                "type": "image",
+                "source": {"type": "base64", "media_type": "image/jpeg", "data": data},
+            })
+        except Exception as e:
+            print(f"    Warning: skipped image — {e}")
+
+    if not content:
+        return None
+
+    content.append({"type": "text", "text": get_prompt()})
+
+    for attempt in range(5):
+        try:
+            response = client.messages.create(
+                model="claude-sonnet-4-6",
+                max_tokens=1024,
+                messages=[{"role": "user", "content": content}],
+            )
+            return response.content[0].text
+        except Exception as e:
+            if "rate_limit" in str(e).lower() and attempt < 4:
+                wait = 60 * (attempt + 1)
+                print(f"    Rate limited — waiting {wait}s before retry {attempt + 1}/4")
+                time.sleep(wait)
+            else:
+                raise
+    return None
+
+
 def chunk_text(text, size=2000):
     """Split text into chunks for Notion's rich_text limit."""
     return [text[i:i + size] for i in range(0, len(text), size)]
