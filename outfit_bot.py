@@ -319,8 +319,9 @@ async def cmd_always(update: Update, context: ContextTypes.DEFAULT_TYPE):
             for m in matches
         ]
         await update.message.reply_text(
-            f"Select item to always include:",
+            "Select item to always include:",
             reply_markup=InlineKeyboardMarkup(buttons),
+            disable_web_page_preview=True,
         )
         return
 
@@ -475,7 +476,8 @@ async def _process_images(update: Update, context: ContextTypes.DEFAULT_TYPE, al
             "<b>When was this worn?</b>"
         )
         await update.message.reply_text(note, parse_mode=ParseMode.HTML,
-                                         reply_markup=InlineKeyboardMarkup(buttons))
+                                         reply_markup=InlineKeyboardMarkup(buttons),
+                                         disable_web_page_preview=True)
 
 
 async def _run_ai_and_review(
@@ -549,7 +551,8 @@ async def _show_next_item(message, session: dict, user_id: int):
     for idx in range(len(results)):
         if decisions[idx] is None:
             text, keyboard = _build_item_card(results[idx], idx, len(results))
-            await message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+            await message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard,
+                                      disable_web_page_preview=True)
             return
 
     # All decided — show summary + confirm
@@ -560,7 +563,8 @@ async def _show_next_item(message, session: dict, user_id: int):
             InlineKeyboardButton("🗑️ Cancel", callback_data="cancel"),
         ]
     ])
-    await message.reply_text(summary, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+    await message.reply_text(summary, parse_mode=ParseMode.HTML, reply_markup=keyboard,
+                              disable_web_page_preview=True)
 
 
 # ── Callback handlers ─────────────────────────────────────────────────────────
@@ -600,7 +604,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "item_name": item["name"],
         }
         text, _ = _build_item_card(result, idx, len(session["results"]), session["decisions"][idx])
-        await query.edit_message_text(text, parse_mode=ParseMode.HTML)
+        await query.edit_message_text(text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
         await _show_next_item(query.message, session, user_id)
 
     elif action == "alt":
@@ -613,13 +617,13 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "item_name": item["name"],
         }
         text, _ = _build_item_card(result, idx, len(session["results"]), session["decisions"][idx])
-        await query.edit_message_text(text, parse_mode=ParseMode.HTML)
+        await query.edit_message_text(text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
         await _show_next_item(query.message, session, user_id)
 
     elif action == "skip":
         session["decisions"][idx] = {"action": "skipped", "item_id": None}
         text, _ = _build_item_card(result, idx, len(session["results"]), session["decisions"][idx])
-        await query.edit_message_text(text, parse_mode=ParseMode.HTML)
+        await query.edit_message_text(text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
         await _show_next_item(query.message, session, user_id)
 
     elif action == "search":
@@ -685,6 +689,7 @@ async def handle_search_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
         f"Results for <b>{_esc(query_text)}</b>:",
         parse_mode=ParseMode.HTML,
         reply_markup=InlineKeyboardMarkup(buttons),
+        disable_web_page_preview=True,
     )
 
 
