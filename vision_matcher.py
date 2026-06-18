@@ -151,18 +151,53 @@ def match_item(identified: dict, candidates: list[dict]) -> list[dict]:
     return results
 
 
-def run_matching(image_b64: str, catalog: list[dict]) -> list[dict]:
+def run_matching(image_b64: str, catalog: list[dict], img_hash: str | None = None) -> list[dict]:
     """
     Full pipeline: identify items → filter catalog → match each item.
+
+    Learning layer (requires img_hash):
+      - Same image seen before → skip AI, replay prior decisions instantly
+      - Same item type+colour seen before → inject previously-approved item as top candidate
+
     Returns list of result dicts ready for Telegram review UI:
     [{
         "identified": {type, colour, description},
         "top_matches": [{item, confidence, reasoning}],
-        "status": "matched" | "ambiguous" | "unidentified"
+        "status": "matched" | "ambiguous" | "unidentified",
+        "from_memory": bool
     }]
     """
+    import corrections_db
     from collection_cache import search
 
+    # ── Level 1: exact image replay ───────────────────────────────────────────
+    if img_hash:
+        prior = corrections_db.lookup_image(img_hash)
+        if prior:
+            print(f"  [memory] exact image match — replaying {len(prior)} prior decisions", file=sys.stderr)
+            results = []
+            for d in prior:
+                item = next((c for c in catalog if c["id"] == d["correct_id"]), None)
+                if not item:
+                    continue
+                results.append({
+                    "identified": {
+                        "type": d["item_type"],
+                        "colour": "",
+                        "description": f"Previously identified as {d['correct_name']}",
+                    },
+                    "top_matches": [{
+                        "item": item,
+                        "confidence": 1.0,
+                        "reasoning": "From your correction history",
+                    }],
+                    "status": "matched",
+                    "from_memory": True,
+                })
+            if results:
+                return results
+
+    # ── Level 2: fresh AI identification ─────────────────────────────────────
     identified_items = identify_items(image_b64)
     if not identified_items:
         return []
@@ -170,7 +205,28 @@ def run_matching(image_b64: str, catalog: list[dict]) -> list[dict]:
     results = []
     for item in identified_items:
         candidates = search(item["type"], item["colour"], catalog, max_results=35)
+
+        # ── Level 2b: inject prior corrections for this type+colour ──────────
+        if img_hash:
+            prior_for_type = corrections_db.lookup_type_colour(item["type"], item["colour"])
+            if prior_for_type:
+                print(f"  [memory] type+colour match for '{item['type']} {item['colour']}': "
+                      f"{[p['correct_name'] for p in prior_for_type]}", file=sys.stderr)
+                # Move previously-approved items to the front of candidates
+                prior_ids = {p["correct_id"] for p in prior_for_type}
+                priority = [c for c in candidates if c["id"] in prior_ids]
+                rest = [c for c in candidates if c["id"] not in prior_ids]
+                candidates = priority + rest
+
         top_matches = match_item(item, candidates) if candidates else []
+
+        # If the top match is a prior correction, boost its confidence to 0.95
+        if top_matches and img_hash:
+            prior_for_type = corrections_db.lookup_type_colour(item["type"], item["colour"])
+            prior_ids = {p["correct_id"] for p in prior_for_type}
+            if top_matches[0]["item"]["id"] in prior_ids:
+                top_matches[0] = dict(top_matches[0], confidence=0.95,
+                                      reasoning=top_matches[0]["reasoning"] + " [confirmed by your history]")
 
         if top_matches:
             best_conf = top_matches[0]["confidence"]
@@ -182,6 +238,7 @@ def run_matching(image_b64: str, catalog: list[dict]) -> list[dict]:
             "identified": item,
             "top_matches": top_matches,
             "status": status,
+            "from_memory": False,
         })
 
     return results

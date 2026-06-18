@@ -11,7 +11,7 @@ Commands:
     /help        — command list
 """
 
-import os, sys, base64, asyncio, traceback, json
+import os, sys, base64, asyncio, traceback, json, hashlib
 from io import BytesIO
 from datetime import date
 from pathlib import Path
@@ -41,6 +41,7 @@ load_dotenv()
 import collection_cache
 import vision_matcher
 import notion_writer
+import corrections_db
 
 TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 
@@ -130,7 +131,8 @@ def _build_item_card(result: dict, idx: int, total: int, decision: dict | None =
     emoji = _status_emoji(status)
     top = result["top_matches"]
 
-    lines = [f"<b>Item {idx + 1} of {total}</b> {emoji}"]
+    memory_tag = " 🧠" if result.get("from_memory") else ""
+    lines = [f"<b>Item {idx + 1} of {total}</b> {emoji}{memory_tag}"]
     lines.append(f"<i>{_esc(ident['type'].title())} — {_esc(ident['colour'])}</i>")
     lines.append(f"{_esc(ident['description'][:120])}")
     lines.append("")
@@ -359,6 +361,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     image_bytes = _resize_for_vision(raw_bytes)
     image_b64 = base64.standard_b64encode(image_bytes).decode()
+    img_hash = hashlib.sha256(raw_bytes).hexdigest()
 
     # Determine date
     if user_id in _date_override:
@@ -382,7 +385,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         results = await asyncio.get_event_loop().run_in_executor(
-            None, vision_matcher.run_matching, image_b64, catalog
+            None, vision_matcher.run_matching, image_b64, catalog, img_hash
         )
     except Exception as e:
         await msg.edit_text(f"AI matching failed: {e}")
@@ -398,6 +401,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     _sessions[user_id] = {
         "image_bytes": raw_bytes,
+        "img_hash": img_hash,
         "date": outfit_date,
         "results": results,
         "decisions": [None] * len(results),
@@ -612,7 +616,6 @@ async def _do_confirm(query, session: dict, user_id: int):
         for d in decisions
         if d and d["action"] in ("approved", "changed") and d.get("item_id")
     ]
-    # Merge: always-worn first, then reviewed items (deduplicate)
     seen = set(always_ids)
     item_ids = always_ids + [i for i in reviewed_ids if i not in seen]
 
@@ -620,6 +623,30 @@ async def _do_confirm(query, session: dict, user_id: int):
         await query.edit_message_text("No items approved. Nothing to log.")
         _sessions.pop(user_id, None)
         return
+
+    # Save decisions to corrections DB so the bot learns
+    results = session.get("results", [])
+    correction_records = []
+    for r, d in zip(results, decisions):
+        if d and d["action"] in ("approved", "changed") and d.get("item_id"):
+            ident = r["identified"]
+            ai_top = r["top_matches"][0]["item"] if r.get("top_matches") else None
+            correction_records.append({
+                "item_type": ident.get("type", ""),
+                "item_colour": ident.get("colour", ""),
+                "visual_description": ident.get("description", ""),
+                "ai_top_id": ai_top["id"] if ai_top else None,
+                "ai_top_name": ai_top["name"] if ai_top else None,
+                "correct_id": d["item_id"],
+                "correct_name": d["item_name"],
+            })
+    if correction_records:
+        corrections_db.save_decisions(
+            session.get("img_hash", ""),
+            session["date"],
+            correction_records,
+        )
+        print(f"  [memory] saved {len(correction_records)} decisions to corrections DB", file=sys.stderr)
 
     await query.edit_message_text("⏳ Uploading image and creating Notion entry...")
 
