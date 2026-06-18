@@ -205,7 +205,9 @@ def _build_summary(session: dict) -> str:
     approved = [(r, d) for r, d in zip(results, decisions) if d and d["action"] in ("approved", "changed")]
     skipped = [r for r, d in zip(results, decisions) if d and d["action"] == "skipped"]
 
-    lines = ["<b>Review Summary</b>\n"]
+    season = session.get("season", "")
+    season_tag = f" · <b>{season}</b>" if season else ""
+    lines = [f"<b>Review Summary</b>{season_tag}\n"]
 
     # Always-worn items first
     if always:
@@ -507,13 +509,16 @@ async def _run_ai_and_review(
     image_b64 = base64.standard_b64encode(primary_resized).decode()
 
     try:
-        results = await asyncio.get_event_loop().run_in_executor(
+        match_output = await asyncio.get_event_loop().run_in_executor(
             None, vision_matcher.run_matching, image_b64, catalog, img_hash
         )
     except Exception as e:
         await msg.edit_text(f"AI matching failed: {e}")
         print(f"run_matching error: {traceback.format_exc()}", file=sys.stderr)
         return
+
+    results = match_output["results"]
+    season = match_output["season"]
 
     if not results:
         await msg.edit_text("Could not identify any items. Try a clearer photo.")
@@ -523,9 +528,10 @@ async def _run_ai_and_review(
     n = len(all_images)
 
     _sessions[user_id] = {
-        "all_images": all_images,         # all photos in the album
+        "all_images": all_images,
         "img_hash": img_hash,
         "date": outfit_date,
+        "season": season,
         "results": results,
         "decisions": [None] * len(results),
         "always_worn_decisions": always_decisions,
@@ -537,7 +543,7 @@ async def _run_ai_and_review(
     photo_note = f" · {n} photos" if n > 1 else ""
 
     await msg.edit_text(
-        f"📅 <b>{outfit_date}</b>{photo_note} · Found <b>{len(results)} item(s)</b> — "
+        f"📅 <b>{outfit_date}</b>{photo_note} · <b>{season}</b> · Found <b>{len(results)} item(s)</b> — "
         f"{matched} matched, {ambiguous} ambiguous, {unidentified} unidentified.",
         parse_mode=ParseMode.HTML,
     )
@@ -857,7 +863,7 @@ async def _do_confirm(query, session: dict, user_id: int):
     try:
         page_id = await loop.run_in_executor(
             None, notion_writer.create_ootd_entry, outfit_date, item_ids,
-            image_urls if image_urls else None,
+            image_urls if image_urls else None, session.get("season"),
         )
         clean_id = page_id.replace("-", "")
         notion_url = f"https://www.notion.so/{clean_id}"

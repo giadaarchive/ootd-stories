@@ -34,9 +34,13 @@ For each item return:
 - colour: primary colour description (e.g. "navy", "camel", "off-white", "dark wash")
 - description: one precise sentence describing the item (silhouette, material, key details)
 
-Return a JSON object with key "items" containing an array. No markdown, no explanation.
+Also classify the overall outfit season:
+- "SS" (Spring/Summer): lighter fabrics, bare skin, brighter or pastel tones, fewer layers, linen/cotton/silk
+- "AW" (Autumn/Winter): heavier fabrics, knitwear, outerwear, darker tones, more layers, wool/cashmere/leather
+
+Return a JSON object with keys "season" and "items". No markdown, no explanation.
 Example:
-{"items": [
+{"season": "AW", "items": [
   {"type": "double-breasted blazer", "colour": "navy", "description": "Navy wool double-breasted blazer with peak lapels and gold buttons"},
   {"type": "straight-leg trousers", "colour": "ivory", "description": "Ivory wool straight-leg trousers with a high waist"}
 ]}
@@ -67,11 +71,11 @@ def _parse_json(raw: str) -> dict:
     return json.loads(raw.strip())
 
 
-def identify_items(image_b64: str) -> list[dict]:
+def identify_items(image_b64: str) -> tuple[list[dict], str]:
     """
-    Step 1: Claude vision identifies all visible items in the outfit photo.
+    Step 1: Claude vision identifies all visible items and classifies outfit season.
     image_b64: base64-encoded JPEG bytes.
-    Returns list of {type, colour, description}.
+    Returns (items: list[{type, colour, description}], season: "SS" | "AW").
     """
     msg = _anthropic().messages.create(
         model="claude-sonnet-4-6",
@@ -88,17 +92,22 @@ def identify_items(image_b64: str) -> list[dict]:
                         "data": image_b64,
                     },
                 },
-                {"type": "text", "text": "Identify every item in this outfit photo."},
+                {"type": "text", "text": "Identify every item in this outfit photo and classify the season."},
             ],
         }],
     )
     raw = msg.content[0].text.strip()
     print(f"  Identify tokens: {msg.usage.input_tokens} in / {msg.usage.output_tokens} out", file=sys.stderr)
     try:
-        return _parse_json(raw).get("items", [])
+        parsed = _parse_json(raw)
+        items = parsed.get("items", [])
+        season = parsed.get("season", "SS")
+        if season not in ("SS", "AW"):
+            season = "SS"
+        return items, season
     except (json.JSONDecodeError, ValueError) as e:
         print(f"  [warn] JSON parse failed for identify step: {e} — {raw[:200]}", file=sys.stderr)
-        return []
+        return [], "SS"
 
 
 def _format_candidates(candidates: list[dict]) -> str:
@@ -151,7 +160,7 @@ def match_item(identified: dict, candidates: list[dict]) -> list[dict]:
     return results
 
 
-def run_matching(image_b64: str, catalog: list[dict], img_hash: str | None = None) -> list[dict]:
+def run_matching(image_b64: str, catalog: list[dict], img_hash: str | None = None) -> dict:
     """
     Full pipeline: identify items → filter catalog → match each item.
 
@@ -159,13 +168,15 @@ def run_matching(image_b64: str, catalog: list[dict], img_hash: str | None = Non
       - Same image seen before → skip AI, replay prior decisions instantly
       - Same item type+colour seen before → inject previously-approved item as top candidate
 
-    Returns list of result dicts ready for Telegram review UI:
-    [{
-        "identified": {type, colour, description},
-        "top_matches": [{item, confidence, reasoning}],
-        "status": "matched" | "ambiguous" | "unidentified",
-        "from_memory": bool
-    }]
+    Returns {
+        "season": "SS" | "AW",
+        "results": [{
+            "identified": {type, colour, description},
+            "top_matches": [{item, confidence, reasoning}],
+            "status": "matched" | "ambiguous" | "unidentified",
+            "from_memory": bool
+        }]
+    }
     """
     import corrections_db
     from collection_cache import search
@@ -195,12 +206,13 @@ def run_matching(image_b64: str, catalog: list[dict], img_hash: str | None = Non
                     "from_memory": True,
                 })
             if results:
-                return results
+                # Season unknown for memory replay — default to SS, user can correct later
+                return {"season": "SS", "results": results}
 
     # ── Level 2: fresh AI identification ─────────────────────────────────────
-    identified_items = identify_items(image_b64)
+    identified_items, season = identify_items(image_b64)
     if not identified_items:
-        return []
+        return {"season": "SS", "results": []}
 
     results = []
     for item in identified_items:
@@ -241,7 +253,7 @@ def run_matching(image_b64: str, catalog: list[dict], img_hash: str | None = Non
             "from_memory": False,
         })
 
-    return results
+    return {"season": season, "results": results}
 
 
 if __name__ == "__main__":

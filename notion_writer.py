@@ -141,6 +141,7 @@ def create_ootd_entry(
     date_str: str,
     item_ids: list[str],
     image_urls: list[str] | None = None,
+    season: str | None = None,
 ) -> str:
     """
     Create an OOTD page in Notion.
@@ -148,6 +149,7 @@ def create_ootd_entry(
     date_str:   ISO date "YYYY-MM-DD"
     item_ids:   Collection page IDs to link via Items relation
     image_urls: list of public URLs — each becomes an image block on the page
+    season:     "SS" or "AW" — written to the Style select property
 
     Returns the new page ID.
     """
@@ -158,6 +160,9 @@ def create_ootd_entry(
         "Worn": {"date": {"start": date_str}},
         "Items": {"relation": [{"id": pid} for pid in item_ids]},
     }
+
+    if season in ("SS", "AW"):
+        properties["Style"] = {"select": {"name": season}}
 
     body = {
         "parent": {"database_id": OOTD_DB_ID},
