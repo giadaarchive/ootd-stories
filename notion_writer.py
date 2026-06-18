@@ -126,7 +126,7 @@ def create_ootd_entry(
     properties = {
         "Name": {"title": [{"text": {"content": title}}]},
         "Worn": {"date": {"start": date_str}},
-        "Items Worn": {"relation": [{"id": pid} for pid in item_ids]},
+        "Items": {"relation": [{"id": pid} for pid in item_ids]},
     }
 
     body = {

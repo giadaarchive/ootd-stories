@@ -113,8 +113,8 @@ API property names, types, and IDs for all databases. Property names are case-se
 |---------|------|-------|
 | `Name` | `title` | Date-based name |
 | `Substack` | `status` | `Post to Substack` → `Posted` |
-| `Story` | `rich_text` | Generated story text |
-| `Items Worn` | `relation` | → Collection database |
+| `OOTD Story` | `rich_text` | Generated story text |
+| `Items` | `relation` | → Collection database (actual API key, not "Items Worn") |
 
 ---
 
