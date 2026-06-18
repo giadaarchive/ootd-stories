@@ -344,36 +344,97 @@ async def cmd_refresh(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.edit_text(f"Refresh failed: {e}")
 
 
-# ── Photo handler ─────────────────────────────────────────────────────────────
+# ── Pending images (waiting for date confirmation) ────────────────────────────
+# user_id → {raw_bytes, img_hash}
+_pending: dict[int, dict] = {}
+
+
+# ── Photo + Document handlers ─────────────────────────────────────────────────
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles photos sent via the camera/gallery button. Telegram strips EXIF."""
     user_id = update.effective_user.id
-    chat_id = update.effective_chat.id
-    print(f"[photo] from user {user_id} in chat {chat_id}", flush=True)
+    print(f"[photo] from user {user_id}", flush=True)
     msg = await update.message.reply_text("📸 Received. Downloading...")
 
-    # Get highest-res version
     photo = update.message.photo[-1]
     file = await context.bot.get_file(photo.file_id)
     buf = BytesIO()
     await file.download_to_memory(buf)
     raw_bytes = buf.getvalue()
 
-    image_bytes = _resize_for_vision(raw_bytes)
-    image_b64 = base64.standard_b64encode(image_bytes).decode()
+    await msg.delete()
+    await _process_image(update, context, raw_bytes, source="photo")
+
+
+async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles images sent as files (paperclip). Original file preserved → EXIF intact."""
+    doc = update.message.document
+    if not doc.mime_type or not doc.mime_type.startswith("image/"):
+        return
+    user_id = update.effective_user.id
+    print(f"[document] from user {user_id}", flush=True)
+    msg = await update.message.reply_text("📸 Received. Downloading...")
+
+    file = await context.bot.get_file(doc.file_id)
+    buf = BytesIO()
+    await file.download_to_memory(buf)
+    raw_bytes = buf.getvalue()
+
+    await msg.delete()
+    await _process_image(update, context, raw_bytes, source="document")
+
+
+async def _process_image(update: Update, context: ContextTypes.DEFAULT_TYPE, raw_bytes: bytes, source: str):
+    """Shared pipeline after image bytes are downloaded."""
+    user_id = update.effective_user.id
     img_hash = hashlib.sha256(raw_bytes).hexdigest()
 
-    # Determine date
+    # ── Date resolution ───────────────────────────────────────────────────────
     if user_id in _date_override:
         outfit_date = _date_override.pop(user_id)
-        date_source = "override"
-    else:
-        exif_date = _extract_exif_date(raw_bytes)
-        outfit_date = exif_date or date.today().isoformat()
-        date_source = "EXIF" if exif_date else "today"
+        date_label = f"📅 <b>{outfit_date}</b> <i>(set manually)</i>"
+        await _run_ai_and_review(update, context, raw_bytes, img_hash, outfit_date)
+        return
 
-    await msg.edit_text(
-        f"📅 <b>{outfit_date}</b> (from {date_source})\n\n🔍 Identifying items...",
+    exif_date = _extract_exif_date(raw_bytes)
+
+    if exif_date:
+        date_label = f"📅 <b>{exif_date}</b> <i>(from image metadata)</i>"
+        msg = await update.message.reply_text(date_label, parse_mode=ParseMode.HTML)
+        await _run_ai_and_review(update, context, raw_bytes, img_hash, exif_date, status_msg=msg)
+    else:
+        # No EXIF (Telegram compressed it) — ask user to confirm date
+        _pending[user_id] = {"raw_bytes": raw_bytes, "img_hash": img_hash}
+
+        from datetime import timedelta
+        today = date.today()
+        options = [
+            (today.isoformat(), "Today"),
+            ((today - timedelta(days=1)).isoformat(), "Yesterday"),
+            ((today - timedelta(days=2)).isoformat(), f"{(today - timedelta(days=2)).strftime('%a %-d %b')}"),
+            ((today - timedelta(days=3)).isoformat(), f"{(today - timedelta(days=3)).strftime('%a %-d %b')}"),
+        ]
+        buttons = [
+            [InlineKeyboardButton(label, callback_data=f"setdate:{iso}")]
+            for iso, label in options
+        ] + [[InlineKeyboardButton("📅 Pick a date", callback_data="setdate:pick")]]
+
+        note = ("⚠️ <i>No date found in image metadata — Telegram compressed the photo and stripped EXIF.\n"
+                "Send as a <b>file</b> (paperclip icon) next time to preserve the original date.</i>\n\n"
+                "<b>When was this photo taken?</b>")
+        await update.message.reply_text(note, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def _run_ai_and_review(update: Update, context: ContextTypes.DEFAULT_TYPE,
+                              raw_bytes: bytes, img_hash: str, outfit_date: str,
+                              status_msg=None):
+    """Run AI matching and start the review flow."""
+    user_id = update.effective_user.id
+
+    msg = status_msg or await update.message.reply_text("placeholder")
+    await (msg.edit_text if status_msg else msg.edit_text)(
+        f"📅 <b>{outfit_date}</b>\n\n🔍 Identifying items...",
         parse_mode=ParseMode.HTML,
     )
 
@@ -382,6 +443,9 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await msg.edit_text(f"Failed to load collection: {e}")
         return
+
+    image_bytes = _resize_for_vision(raw_bytes)
+    image_b64 = base64.standard_b64encode(image_bytes).decode()
 
     try:
         results = await asyncio.get_event_loop().run_in_executor(
@@ -396,7 +460,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.edit_text("Could not identify any items. Try a clearer photo.")
         return
 
-    # Build always-worn pre-approvals (these don't need review)
     always_decisions = _always_worn_as_decisions(catalog)
 
     _sessions[user_id] = {
@@ -413,9 +476,8 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     unidentified = sum(1 for r in results if r["status"] == "unidentified")
 
     await msg.edit_text(
-        f"Found <b>{len(results)} item(s)</b> — "
-        f"{matched} matched, {ambiguous} ambiguous, {unidentified} unidentified.\n"
-        f"Reviewing one by one:",
+        f"📅 <b>{outfit_date}</b> · Found <b>{len(results)} item(s)</b> — "
+        f"{matched} matched, {ambiguous} ambiguous, {unidentified} unidentified.",
         parse_mode=ParseMode.HTML,
     )
     await _show_next_item(update.message, _sessions[user_id], user_id)
@@ -513,6 +575,24 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_search_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+
+    # ── Date text input (when user typed a custom date) ───────────────────────
+    pending = _pending.get(user_id)
+    if pending and pending.get("waiting_for_date_text"):
+        text = update.message.text.strip()
+        try:
+            date.fromisoformat(text)
+        except ValueError:
+            await update.message.reply_text("Invalid format. Use YYYY-MM-DD (e.g. 2026-06-15):")
+            return
+        _pending.pop(user_id, None)
+        msg = await update.message.reply_text(
+            f"📅 <b>{text}</b>\n\n🔍 Identifying items...", parse_mode=ParseMode.HTML
+        )
+        await _run_ai_and_review(update, context, pending["raw_bytes"], pending["img_hash"], text,
+                                  status_msg=msg)
+        return
+
     session = _sessions.get(user_id)
     if not session or "searching_for_idx" not in session:
         return
@@ -547,6 +627,35 @@ async def handle_search_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
         parse_mode=ParseMode.HTML,
         reply_markup=InlineKeyboardMarkup(buttons),
     )
+
+
+async def handle_setdate_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles date selection when EXIF was missing."""
+    query = update.callback_query
+    await query.answer()
+    user_id = update.effective_user.id
+    pending = _pending.get(user_id)
+    if not pending:
+        await query.edit_message_text("Session expired. Send the photo again.")
+        return
+
+    chosen = query.data.split(":", 1)[1]  # ISO date or "pick"
+
+    if chosen == "pick":
+        _pending[user_id]["waiting_for_date_text"] = True
+        await query.edit_message_text(
+            "Type the date in format <b>YYYY-MM-DD</b> (e.g. 2026-06-15):",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    _pending.pop(user_id, None)
+    await query.edit_message_text(
+        f"📅 <b>{chosen}</b>\n\n🔍 Identifying items...",
+        parse_mode=ParseMode.HTML,
+    )
+    await _run_ai_and_review(query, context, pending["raw_bytes"], pending["img_hash"], chosen,
+                              status_msg=query.message)
 
 
 async def handle_always_add_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -704,6 +813,8 @@ def main():
     app.add_handler(CommandHandler("always", cmd_always))
 
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    app.add_handler(MessageHandler(filters.Document.IMAGE, handle_document))
+    app.add_handler(CallbackQueryHandler(handle_setdate_callback, pattern=r"^setdate:"))
     app.add_handler(CallbackQueryHandler(handle_always_add_callback, pattern=r"^always_add:"))
     app.add_handler(CallbackQueryHandler(handle_pick_callback, pattern=r"^pick:"))
     app.add_handler(CallbackQueryHandler(handle_callback))

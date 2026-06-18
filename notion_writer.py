@@ -52,34 +52,36 @@ def _make_title(date_str: str) -> str:
 
 def upload_to_github(image_bytes: bytes, date_str: str, suffix: str = "") -> str | None:
     """
-    Push image to giadaarchive/ootd-stories on a dedicated branch/path.
+    Push outfit photo to giadaarchive/collection-images repo (public, permanent URLs).
+    Uses the scripts branch of ootd-stories as fallback.
     Returns raw.githubusercontent.com URL or None on failure.
-
-    Uses the outfits/ directory (already in .gitignore awareness — but we
-    push to the 'outfits' branch so it stays separate from main).
-    Actually, pushes to main under outfits/YYYY-MM-DD/ to match existing pattern.
     """
     if not GITHUB_TOKEN:
+        print("  [image] no GITHUB_TOKEN, skipping GitHub upload")
         return None
-    filename = f"outfits/{date_str}/outfit{suffix}.jpg"
-    api_url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{filename}"
+
+    # Use collection-images repo for public permanent image hosting
+    image_repo = "giadaarchive/collection-images"
+    filename = f"ootd/{date_str}/outfit{suffix}.jpg"
+    api_url = f"https://api.github.com/repos/{image_repo}/contents/{filename}"
     b64 = base64.b64encode(image_bytes).decode()
-    headers = {
+    gh_headers = {
         "Authorization": f"Bearer {GITHUB_TOKEN}",
         "Accept": "application/vnd.github+json",
     }
-    # Check if file exists (need SHA to update)
-    existing = requests.get(api_url, headers=headers)
-    body = {
-        "message": f"outfit photo {date_str}",
-        "content": b64,
-        "branch": "main",
-    }
+    # Get SHA if file exists (required for updates)
+    existing = requests.get(api_url, headers=gh_headers, timeout=15)
+    body = {"message": f"outfit {date_str}", "content": b64}
     if existing.status_code == 200:
         body["sha"] = existing.json()["sha"]
-    r = requests.put(api_url, headers=headers, json=body)
+
+    r = requests.put(api_url, headers=gh_headers, json=body, timeout=30)
     if r.status_code in (200, 201):
-        return f"https://raw.githubusercontent.com/{GITHUB_REPO}/main/{filename}"
+        url = f"https://raw.githubusercontent.com/{image_repo}/main/{filename}"
+        print(f"  [image] uploaded to GitHub: {url}")
+        return url
+
+    print(f"  [image] GitHub upload failed: {r.status_code} {r.text[:200]}")
     return None
 
 
