@@ -42,6 +42,7 @@ import collection_cache
 import vision_matcher
 import notion_writer
 import corrections_db
+import lookbook as lookbook_mod
 
 TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 
@@ -345,95 +346,150 @@ async def cmd_refresh(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ── Pending images (waiting for date confirmation) ────────────────────────────
-# user_id → {raw_bytes, img_hash}
+# user_id → {all_images: [bytes], img_hash: str}
 _pending: dict[int, dict] = {}
+
+# ── Media group buffer (collecting album photos before processing) ─────────────
+# media_group_id → {update, all_images: [bytes], task: asyncio.Task}
+_media_groups: dict[str, dict] = {}
+
+ALBUM_COLLECT_SECS = 3  # wait this long after first photo before processing album
+
+
+async def _flush_album(media_group_id: str, context: ContextTypes.DEFAULT_TYPE):
+    """Called after ALBUM_COLLECT_SECS — process all buffered album images."""
+    await asyncio.sleep(ALBUM_COLLECT_SECS)
+    data = _media_groups.pop(media_group_id, None)
+    if not data:
+        return
+    print(f"[album] flushing {len(data['all_images'])} images for group {media_group_id}", flush=True)
+    await _process_images(data["update"], context, data["all_images"])
+
+
+async def _download_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bytes:
+    photo = update.message.photo[-1]
+    file = await context.bot.get_file(photo.file_id)
+    buf = BytesIO()
+    await file.download_to_memory(buf)
+    return buf.getvalue()
+
+
+async def _download_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bytes | None:
+    doc = update.message.document
+    if not doc.mime_type or not doc.mime_type.startswith("image/"):
+        return None
+    file = await context.bot.get_file(doc.file_id)
+    buf = BytesIO()
+    await file.download_to_memory(buf)
+    return buf.getvalue()
 
 
 # ── Photo + Document handlers ─────────────────────────────────────────────────
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handles photos sent via the camera/gallery button. Telegram strips EXIF."""
     user_id = update.effective_user.id
-    print(f"[photo] from user {user_id}", flush=True)
-    msg = await update.message.reply_text("📸 Received. Downloading...")
+    mgid = update.message.media_group_id
+    raw = await _download_photo(update, context)
 
-    photo = update.message.photo[-1]
-    file = await context.bot.get_file(photo.file_id)
-    buf = BytesIO()
-    await file.download_to_memory(buf)
-    raw_bytes = buf.getvalue()
-
-    await msg.delete()
-    await _process_image(update, context, raw_bytes, source="photo")
+    if mgid:
+        # Part of an album — buffer and wait for siblings
+        if mgid not in _media_groups:
+            print(f"[album] started {mgid}", flush=True)
+            task = asyncio.create_task(_flush_album(mgid, context))
+            _media_groups[mgid] = {"update": update, "all_images": [raw], "task": task}
+        else:
+            _media_groups[mgid]["all_images"].append(raw)
+    else:
+        print(f"[photo] single from user {user_id}", flush=True)
+        await _process_images(update, context, [raw])
 
 
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handles images sent as files (paperclip). Original file preserved → EXIF intact."""
-    doc = update.message.document
-    if not doc.mime_type or not doc.mime_type.startswith("image/"):
+    raw = await _download_document(update, context)
+    if raw is None:
         return
     user_id = update.effective_user.id
-    print(f"[document] from user {user_id}", flush=True)
-    msg = await update.message.reply_text("📸 Received. Downloading...")
+    mgid = update.message.media_group_id
 
-    file = await context.bot.get_file(doc.file_id)
-    buf = BytesIO()
-    await file.download_to_memory(buf)
-    raw_bytes = buf.getvalue()
+    if mgid:
+        if mgid not in _media_groups:
+            task = asyncio.create_task(_flush_album(mgid, context))
+            _media_groups[mgid] = {"update": update, "all_images": [raw], "task": task}
+        else:
+            _media_groups[mgid]["all_images"].append(raw)
+    else:
+        print(f"[document] single from user {user_id}", flush=True)
+        await _process_images(update, context, [raw])
 
-    await msg.delete()
-    await _process_image(update, context, raw_bytes, source="document")
 
-
-async def _process_image(update: Update, context: ContextTypes.DEFAULT_TYPE, raw_bytes: bytes, source: str):
-    """Shared pipeline after image bytes are downloaded."""
+async def _process_images(update: Update, context: ContextTypes.DEFAULT_TYPE, all_images: list[bytes]):
+    """
+    Entry point after all images for an outfit are collected.
+    Uses first image for AI matching and EXIF; all images uploaded to Notion.
+    """
     user_id = update.effective_user.id
-    img_hash = hashlib.sha256(raw_bytes).hexdigest()
+    primary = all_images[0]
+    img_hash = hashlib.sha256(primary).hexdigest()
+
+    n = len(all_images)
+    label = f"📸 {n} photo{'s' if n > 1 else ''} received."
 
     # ── Date resolution ───────────────────────────────────────────────────────
     if user_id in _date_override:
         outfit_date = _date_override.pop(user_id)
-        date_label = f"📅 <b>{outfit_date}</b> <i>(set manually)</i>"
-        await _run_ai_and_review(update, context, raw_bytes, img_hash, outfit_date)
+        msg = await update.message.reply_text(
+            f"{label}\n📅 <b>{outfit_date}</b> <i>(set manually)</i>",
+            parse_mode=ParseMode.HTML,
+        )
+        await _run_ai_and_review(update, context, all_images, img_hash, outfit_date, status_msg=msg)
         return
 
-    exif_date = _extract_exif_date(raw_bytes)
-
+    exif_date = _extract_exif_date(primary)
     if exif_date:
-        date_label = f"📅 <b>{exif_date}</b> <i>(from image metadata)</i>"
-        msg = await update.message.reply_text(date_label, parse_mode=ParseMode.HTML)
-        await _run_ai_and_review(update, context, raw_bytes, img_hash, exif_date, status_msg=msg)
+        msg = await update.message.reply_text(
+            f"{label}\n📅 <b>{exif_date}</b> <i>(from image metadata)</i>",
+            parse_mode=ParseMode.HTML,
+        )
+        await _run_ai_and_review(update, context, all_images, img_hash, exif_date, status_msg=msg)
     else:
-        # No EXIF (Telegram compressed it) — ask user to confirm date
-        _pending[user_id] = {"raw_bytes": raw_bytes, "img_hash": img_hash}
+        # No EXIF — show date picker, hold images in pending
+        _pending[user_id] = {"all_images": all_images, "img_hash": img_hash}
 
         from datetime import timedelta
         today = date.today()
         options = [
             (today.isoformat(), "Today"),
             ((today - timedelta(days=1)).isoformat(), "Yesterday"),
-            ((today - timedelta(days=2)).isoformat(), f"{(today - timedelta(days=2)).strftime('%a %-d %b')}"),
-            ((today - timedelta(days=3)).isoformat(), f"{(today - timedelta(days=3)).strftime('%a %-d %b')}"),
+            ((today - timedelta(days=2)).isoformat(), (today - timedelta(days=2)).strftime("%a %-d %b")),
+            ((today - timedelta(days=3)).isoformat(), (today - timedelta(days=3)).strftime("%a %-d %b")),
         ]
         buttons = [
-            [InlineKeyboardButton(label, callback_data=f"setdate:{iso}")]
-            for iso, label in options
+            [InlineKeyboardButton(lbl, callback_data=f"setdate:{iso}")]
+            for iso, lbl in options
         ] + [[InlineKeyboardButton("📅 Pick a date", callback_data="setdate:pick")]]
 
-        note = ("⚠️ <i>No date found in image metadata — Telegram compressed the photo and stripped EXIF.\n"
-                "Send as a <b>file</b> (paperclip icon) next time to preserve the original date.</i>\n\n"
-                "<b>When was this photo taken?</b>")
-        await update.message.reply_text(note, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(buttons))
+        note = (
+            f"{label}\n"
+            "⚠️ <i>No date in image metadata (Telegram stripped it).\n"
+            "Send as a <b>file</b> next time to preserve the date.</i>\n\n"
+            "<b>When was this worn?</b>"
+        )
+        await update.message.reply_text(note, parse_mode=ParseMode.HTML,
+                                         reply_markup=InlineKeyboardMarkup(buttons))
 
 
-async def _run_ai_and_review(update: Update, context: ContextTypes.DEFAULT_TYPE,
-                              raw_bytes: bytes, img_hash: str, outfit_date: str,
-                              status_msg=None):
-    """Run AI matching and start the review flow."""
+async def _run_ai_and_review(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    all_images: list[bytes],
+    img_hash: str,
+    outfit_date: str,
+    status_msg=None,
+):
+    """Run AI matching on primary image, then start review flow."""
     user_id = update.effective_user.id
-
-    msg = status_msg or await update.message.reply_text("placeholder")
-    await (msg.edit_text if status_msg else msg.edit_text)(
+    msg = status_msg or await update.message.reply_text("🔍 Identifying items...")
+    await msg.edit_text(
         f"📅 <b>{outfit_date}</b>\n\n🔍 Identifying items...",
         parse_mode=ParseMode.HTML,
     )
@@ -444,8 +500,8 @@ async def _run_ai_and_review(update: Update, context: ContextTypes.DEFAULT_TYPE,
         await msg.edit_text(f"Failed to load collection: {e}")
         return
 
-    image_bytes = _resize_for_vision(raw_bytes)
-    image_b64 = base64.standard_b64encode(image_bytes).decode()
+    primary_resized = _resize_for_vision(all_images[0])
+    image_b64 = base64.standard_b64encode(primary_resized).decode()
 
     try:
         results = await asyncio.get_event_loop().run_in_executor(
@@ -461,9 +517,10 @@ async def _run_ai_and_review(update: Update, context: ContextTypes.DEFAULT_TYPE,
         return
 
     always_decisions = _always_worn_as_decisions(catalog)
+    n = len(all_images)
 
     _sessions[user_id] = {
-        "image_bytes": raw_bytes,
+        "all_images": all_images,         # all photos in the album
         "img_hash": img_hash,
         "date": outfit_date,
         "results": results,
@@ -474,9 +531,10 @@ async def _run_ai_and_review(update: Update, context: ContextTypes.DEFAULT_TYPE,
     matched = sum(1 for r in results if r["status"] == "matched")
     ambiguous = sum(1 for r in results if r["status"] == "ambiguous")
     unidentified = sum(1 for r in results if r["status"] == "unidentified")
+    photo_note = f" · {n} photos" if n > 1 else ""
 
     await msg.edit_text(
-        f"📅 <b>{outfit_date}</b> · Found <b>{len(results)} item(s)</b> — "
+        f"📅 <b>{outfit_date}</b>{photo_note} · Found <b>{len(results)} item(s)</b> — "
         f"{matched} matched, {ambiguous} ambiguous, {unidentified} unidentified.",
         parse_mode=ParseMode.HTML,
     )
@@ -589,7 +647,7 @@ async def handle_search_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
         msg = await update.message.reply_text(
             f"📅 <b>{text}</b>\n\n🔍 Identifying items...", parse_mode=ParseMode.HTML
         )
-        await _run_ai_and_review(update, context, pending["raw_bytes"], pending["img_hash"], text,
+        await _run_ai_and_review(update, context, pending["all_images"], pending["img_hash"], text,
                                   status_msg=msg)
         return
 
@@ -654,7 +712,7 @@ async def handle_setdate_callback(update: Update, context: ContextTypes.DEFAULT_
         f"📅 <b>{chosen}</b>\n\n🔍 Identifying items...",
         parse_mode=ParseMode.HTML,
     )
-    await _run_ai_and_review(query, context, pending["raw_bytes"], pending["img_hash"], chosen,
+    await _run_ai_and_review(update, context, pending["all_images"], pending["img_hash"], chosen,
                               status_msg=query.message)
 
 
@@ -711,6 +769,23 @@ async def handle_pick_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     await _show_next_item(query.message, session, user_id)
 
 
+async def _generate_story_bg(chat_id: int, page_id: str, image_urls: list[str], bot):
+    """Generate OOTD story in background and write to Notion page."""
+    try:
+        msg = await bot.send_message(chat_id, "✍️ Generating OOTD story...")
+        loop = asyncio.get_event_loop()
+        story = await loop.run_in_executor(
+            None, lookbook_mod.generate_story, image_urls[:3]
+        )
+        if story:
+            await loop.run_in_executor(None, lookbook_mod.write_story, page_id, story)
+            await msg.edit_text("📖 Story written to Notion.")
+        else:
+            await msg.edit_text("⚠️ Story generation returned empty.")
+    except Exception as e:
+        print(f"[story] background generation failed: {e}", file=sys.stderr)
+
+
 async def _do_confirm(query, session: dict, user_id: int):
     if not session:
         await query.edit_message_text("Session expired.")
@@ -757,22 +832,36 @@ async def _do_confirm(query, session: dict, user_id: int):
         )
         print(f"  [memory] saved {len(correction_records)} decisions to corrections DB", file=sys.stderr)
 
-    await query.edit_message_text("⏳ Uploading image and creating Notion entry...")
+    all_images = session.get("all_images", [])
+    outfit_date = session["date"]
+    n_photos = len(all_images)
 
-    image_url = await asyncio.get_event_loop().run_in_executor(
-        None, notion_writer.host_image, session["image_bytes"], session["date"], "",
+    await query.edit_message_text(
+        f"⏳ Uploading {n_photos} photo{'s' if n_photos > 1 else ''} and creating Notion entry..."
     )
 
+    # Upload each photo to GitHub and collect URLs
+    loop = asyncio.get_event_loop()
+    image_urls: list[str] = []
+    for i, img_bytes in enumerate(all_images):
+        suffix = f"_{i+1}" if n_photos > 1 else ""
+        url = await loop.run_in_executor(
+            None, notion_writer.host_image, img_bytes, outfit_date, suffix
+        )
+        if url:
+            image_urls.append(url)
+
     try:
-        page_id = await asyncio.get_event_loop().run_in_executor(
-            None, notion_writer.create_ootd_entry, session["date"], item_ids, image_url,
+        page_id = await loop.run_in_executor(
+            None, notion_writer.create_ootd_entry, outfit_date, item_ids,
+            image_urls if image_urls else None,
         )
         clean_id = page_id.replace("-", "")
         notion_url = f"https://www.notion.so/{clean_id}"
-        img_note = "📷 Image uploaded" if image_url else "📷 Image: no hosting configured"
+        img_note = f"📷 {len(image_urls)} photo{'s' if len(image_urls) > 1 else ''} uploaded" if image_urls else "📷 Image: no hosting configured"
         await query.edit_message_text(
             f"✅ <b>Logged!</b>\n\n"
-            f"📅 {session['date']}\n"
+            f"📅 {outfit_date}\n"
             f"👗 {len(item_ids)} item(s) linked\n"
             f"{img_note}\n\n"
             f'<a href="{notion_url}">View in Notion</a>',
@@ -784,6 +873,11 @@ async def _do_confirm(query, session: dict, user_id: int):
         return
 
     _sessions.pop(user_id, None)
+
+    # Background story generation (takes 20-30s — don't block the user)
+    if image_urls:
+        chat_id = query.message.chat_id
+        asyncio.create_task(_generate_story_bg(chat_id, page_id, image_urls, query._bot))
 
 
 # ── Error handler ─────────────────────────────────────────────────────────────
