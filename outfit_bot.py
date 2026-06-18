@@ -488,7 +488,8 @@ async def _run_ai_and_review(
 ):
     """Run AI matching on primary image, then start review flow."""
     user_id = update.effective_user.id
-    msg = status_msg or await update.message.reply_text("🔍 Identifying items...")
+    eff_msg = update.effective_message
+    msg = status_msg or await eff_msg.reply_text("🔍 Identifying items...")
     await msg.edit_text(
         f"📅 <b>{outfit_date}</b>\n\n🔍 Identifying items...",
         parse_mode=ParseMode.HTML,
@@ -538,7 +539,7 @@ async def _run_ai_and_review(
         f"{matched} matched, {ambiguous} ambiguous, {unidentified} unidentified.",
         parse_mode=ParseMode.HTML,
     )
-    await _show_next_item(update.message, _sessions[user_id], user_id)
+    await _show_next_item(eff_msg, _sessions[user_id], user_id)
 
 
 async def _show_next_item(message, session: dict, user_id: int):
