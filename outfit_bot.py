@@ -708,10 +708,6 @@ async def handle_setdate_callback(update: Update, context: ContextTypes.DEFAULT_
         return
 
     _pending.pop(user_id, None)
-    await query.edit_message_text(
-        f"📅 <b>{chosen}</b>\n\n🔍 Identifying items...",
-        parse_mode=ParseMode.HTML,
-    )
     await _run_ai_and_review(update, context, pending["all_images"], pending["img_hash"], chosen,
                               status_msg=query.message)
 
