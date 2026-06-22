@@ -6,7 +6,7 @@ Refreshes automatically if cache is older than CACHE_TTL_HOURS.
 Items are indexed by clothing category (extracted from SKU code) for fast filtering.
 """
 
-import os, json, time, requests
+import os, json, time, requests, threading
 from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv()
@@ -15,6 +15,10 @@ NOTION_TOKEN = os.environ["NOTION_TOKEN"]
 COLLECTION_DB_ID = "ad079964-9690-43ae-9fa8-5a4f3ca1a9ee"
 CACHE_FILE = Path(__file__).parent / "collection_cache.json"
 CACHE_TTL_HOURS = 12
+DESIGNER_CACHE_FILE = Path(__file__).parent / "designer_cache.json"
+
+_refresh_lock = threading.Lock()
+_refresh_in_progress = False
 
 NOTION_H = {
     "Authorization": f"Bearer {NOTION_TOKEN}",
@@ -107,51 +111,101 @@ def fetch_all_items():
     return items
 
 
-def _resolve_designer_names(items):
-    """Batch-resolve designer page IDs → names. Mutates items in place."""
-    # Collect unique designer IDs
-    all_ids = {did for item in items for did in item["designer_ids"]}
-    id_to_name = {}
-    for did in all_ids:
+def _load_designer_cache() -> dict:
+    """Load persisted designer ID → name map."""
+    if DESIGNER_CACHE_FILE.exists():
         try:
-            r = requests.get(f"https://api.notion.com/v1/pages/{did}", headers=NOTION_H)
-            r.raise_for_status()
-            page = r.json()
-            props = page.get("properties", {})
-            # Designer DB uses 'Name' as title key
-            name_prop = next(
-                (v for v in props.values() if v.get("type") == "title"), None
-            )
-            if name_prop:
-                id_to_name[did] = _get_text(name_prop.get("title", []))
-            time.sleep(0.35)
+            return json.loads(DESIGNER_CACHE_FILE.read_text())
         except Exception:
             pass
+    return {}
+
+
+def _save_designer_cache(id_to_name: dict):
+    DESIGNER_CACHE_FILE.write_text(json.dumps(id_to_name, ensure_ascii=False))
+
+
+def _resolve_designer_names(items):
+    """
+    Resolve designer page IDs → names, reusing any already-known mappings.
+    Persists the mapping so incremental refreshes only fetch new designers.
+    """
+    known = _load_designer_cache()
+    all_ids = {did for item in items for did in item["designer_ids"]}
+    unknown = all_ids - set(known)
+
+    if unknown:
+        print(f"  Resolving {len(unknown)} new designer(s) ({len(known)} already cached)...")
+        for did in unknown:
+            try:
+                r = requests.get(f"https://api.notion.com/v1/pages/{did}", headers=NOTION_H, timeout=15)
+                r.raise_for_status()
+                props = r.json().get("properties", {})
+                name_prop = next((v for v in props.values() if v.get("type") == "title"), None)
+                if name_prop:
+                    known[did] = _get_text(name_prop.get("title", []))
+                time.sleep(0.35)
+            except Exception:
+                pass
+        _save_designer_cache(known)
+
     for item in items:
         item["designer"] = ", ".join(
-            id_to_name.get(did, did) for did in item["designer_ids"]
+            known.get(did, "") for did in item["designer_ids"] if known.get(did)
         )
 
 
 def refresh():
     """Fetch from Notion, resolve designer names, write cache. Returns item list."""
-    print("Refreshing collection cache...")
+    global _refresh_in_progress
+    print("Refreshing collection cache...", flush=True)
     items = fetch_all_items()
-    print(f"  Fetched {len(items)} items. Resolving designer names...")
+    print(f"  Fetched {len(items)} items. Resolving designer names...", flush=True)
     _resolve_designer_names(items)
     cache = {"fetched_at": time.time(), "items": items}
     CACHE_FILE.write_text(json.dumps(cache, ensure_ascii=False))
-    print(f"  Cache written: {CACHE_FILE}  ({len(items)} items)")
+    print(f"  Cache written: {CACHE_FILE}  ({len(items)} items)", flush=True)
+    _refresh_in_progress = False
     return items
 
 
+def _background_refresh():
+    """Run refresh() in a daemon thread — doesn't block callers."""
+    global _refresh_in_progress
+    with _refresh_lock:
+        if _refresh_in_progress:
+            return
+        _refresh_in_progress = True
+    t = threading.Thread(target=refresh, daemon=True, name="cache-refresh")
+    t.start()
+
+
 def load(force_refresh=False):
-    """Load items from cache, refreshing if stale or missing."""
-    if not force_refresh and CACHE_FILE.exists():
+    """
+    Load items from cache.
+
+    - If cache is fresh: return immediately.
+    - If cache is stale but exists: return stale data NOW, refresh in background.
+    - If no cache: block on first refresh (unavoidable on first run).
+    - force_refresh=True: block on refresh regardless.
+    """
+    if force_refresh:
+        return refresh()
+
+    if CACHE_FILE.exists():
         cache = json.loads(CACHE_FILE.read_text())
+        items = cache.get("items", [])
         age_hours = (time.time() - cache.get("fetched_at", 0)) / 3600
+
         if age_hours < CACHE_TTL_HOURS:
-            return cache["items"]
+            return items  # fresh — return immediately
+
+        # Stale — return now, refresh in background
+        print(f"  [cache] stale ({age_hours:.0f}h old) — using cached data, refreshing in background", flush=True)
+        _background_refresh()
+        return items
+
+    # No cache at all — must block
     return refresh()
 
 
