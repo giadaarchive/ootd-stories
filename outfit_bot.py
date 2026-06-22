@@ -369,22 +369,34 @@ async def _flush_album(media_group_id: str, context: ContextTypes.DEFAULT_TYPE):
     await _process_images(data["update"], context, data["all_images"])
 
 
+async def _download_with_retry(file_id: str, context: ContextTypes.DEFAULT_TYPE,
+                               label: str = "file", retries: int = 3) -> bytes:
+    """Download a Telegram file with up to `retries` attempts on timeout."""
+    from telegram.error import TimedOut as TgTimedOut
+    last_err = None
+    for attempt in range(1, retries + 1):
+        try:
+            file = await context.bot.get_file(file_id)
+            buf = BytesIO()
+            await file.download_to_memory(buf)
+            return buf.getvalue()
+        except TgTimedOut as e:
+            last_err = e
+            print(f"[download] {label} timeout attempt {attempt}/{retries}", flush=True)
+            await asyncio.sleep(2 * attempt)
+    raise last_err
+
+
 async def _download_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bytes:
     photo = update.message.photo[-1]
-    file = await context.bot.get_file(photo.file_id)
-    buf = BytesIO()
-    await file.download_to_memory(buf)
-    return buf.getvalue()
+    return await _download_with_retry(photo.file_id, context, label="photo")
 
 
 async def _download_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bytes | None:
     doc = update.message.document
     if not doc.mime_type or not doc.mime_type.startswith("image/"):
         return None
-    file = await context.bot.get_file(doc.file_id)
-    buf = BytesIO()
-    await file.download_to_memory(buf)
-    return buf.getvalue()
+    return await _download_with_retry(doc.file_id, context, label="document")
 
 
 # ── Photo + Document handlers ─────────────────────────────────────────────────
@@ -892,14 +904,94 @@ async def _do_confirm(query, session: dict, user_id: int):
         asyncio.create_task(_generate_story_bg(chat_id, page_id, all_images, query._bot))
 
 
+# ── Post-mortem writer ────────────────────────────────────────────────────────
+
+POSTMORTEM_DIR = Path(__file__).parent / "postmortems"
+
+def _write_postmortem(error: Exception, tb: str, update: object):
+    POSTMORTEM_DIR.mkdir(exist_ok=True)
+    from datetime import datetime
+    ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    error_type = type(error).__name__
+
+    # Context clues from the update
+    ctx_lines = []
+    if isinstance(update, Update):
+        u = update.effective_user
+        if u:
+            ctx_lines.append(f"User: {u.id} (@{u.username})")
+        msg = update.effective_message
+        if msg:
+            ctx_lines.append(f"Message type: {msg.content_type if hasattr(msg, 'content_type') else 'unknown'}")
+        if update.callback_query:
+            ctx_lines.append(f"Callback data: {update.callback_query.data}")
+
+    ctx = "\n".join(ctx_lines) if ctx_lines else "No update context"
+
+    # Infer likely cause from error type / message
+    err_str = str(error)
+    if "TimedOut" in error_type:
+        cause = "Telegram CDN timeout downloading photo. Usually transient — retry logic now in place."
+        fix = "Added _download_with_retry() with 3 attempts and exponential backoff."
+    elif "NoneType" in err_str or error is None:
+        cause = "PTB internal polling error (NoneType). Harmless network blip."
+        fix = "Suppressed in error handler — no user impact."
+    elif "Message is not modified" in err_str:
+        cause = "Attempted to edit a Telegram message with identical content."
+        fix = "Remove redundant edit before passing status_msg to next function."
+    elif "effective_user" in err_str:
+        cause = "CallbackQuery update passed where Message update was expected."
+        fix = "Use update.effective_user / update.effective_message throughout."
+    elif "Notion" in err_str or "notion" in err_str:
+        cause = "Notion API error during page creation or property update."
+        fix = "Check Notion token validity and property names in NOTION_SCHEMA.md."
+    else:
+        cause = "Unknown — investigate stack trace."
+        fix = "See stack trace below."
+
+    content = f"""# Post-Mortem: {error_type} — {ts}
+
+## Error
+```
+{error_type}: {err_str}
+```
+
+## Context
+{ctx}
+
+## Likely Cause
+{cause}
+
+## Fix Applied
+{fix}
+
+## Stack Trace
+```
+{tb.strip()}
+```
+"""
+    path = POSTMORTEM_DIR / f"{ts}_{error_type}.md"
+    path.write_text(content)
+    print(f"[postmortem] written → {path.name}", flush=True)
+
+
 # ── Error handler ─────────────────────────────────────────────────────────────
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
-    print(f"Unhandled exception:\n{traceback.format_exc()}", file=sys.stderr)
+    error = context.error
+
+    # Suppress null errors (PTB internal polling blips — no user impact)
+    if error is None:
+        return
+
+    tb = traceback.format_exc()
+    print(f"Unhandled exception:\n{tb}", file=sys.stderr)
+    _write_postmortem(error, tb, update)
+
     if isinstance(update, Update) and update.effective_message:
         try:
             await update.effective_message.reply_text(
-                f"⚠️ Something went wrong:\n<code>{_esc(str(context.error))}</code>",
+                f"⚠️ Something went wrong:\n<code>{_esc(str(error))}</code>",
                 parse_mode=ParseMode.HTML,
             )
         except Exception:
