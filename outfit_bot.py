@@ -126,6 +126,31 @@ def _esc(text: str) -> str:
     return escape(str(text))
 
 
+async def _safe_answer(query) -> bool:
+    """Answer a callback query, ignoring expired/invalid query errors."""
+    from telegram.error import BadRequest
+    try:
+        await query.answer()
+        return True
+    except BadRequest as e:
+        if "query" in str(e).lower() and ("old" in str(e).lower() or "invalid" in str(e).lower()):
+            print(f"[cb] expired callback ignored: {e}", flush=True)
+            return False
+        raise
+
+
+async def _safe_edit(query, text: str, **kwargs) -> bool:
+    """Edit a callback message, ignoring 'Message is not modified' errors."""
+    from telegram.error import BadRequest
+    try:
+        await query.edit_message_text(text, **kwargs)
+        return True
+    except BadRequest as e:
+        if "not modified" in str(e).lower():
+            return True  # already correct — not an error
+        raise
+
+
 def _build_item_card(result: dict, idx: int, total: int, decision: dict | None = None) -> tuple[str, InlineKeyboardMarkup]:
     ident = result["identified"]
     status = result["status"]
@@ -589,7 +614,7 @@ async def _show_next_item(message, session: dict, user_id: int):
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
+    await _safe_answer(query)
     user_id = update.effective_user.id
     session = _sessions.get(user_id)
     data = query.data
@@ -600,11 +625,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "cancel":
         _sessions.pop(user_id, None)
-        await query.edit_message_text("Cancelled.")
+        await _safe_edit(query,"Cancelled.")
         return
 
     if not session:
-        await query.edit_message_text("Session expired. Send a new photo.")
+        await _safe_edit(query,"Session expired. Send a new photo.")
         return
 
     action, idx_str = data.split(":", 1)
@@ -622,7 +647,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "item_name": item["name"],
         }
         text, _ = _build_item_card(result, idx, len(session["results"]), session["decisions"][idx])
-        await query.edit_message_text(text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+        await _safe_edit(query,text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
         await _show_next_item(query.message, session, user_id)
 
     elif action == "alt":
@@ -635,18 +660,18 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "item_name": item["name"],
         }
         text, _ = _build_item_card(result, idx, len(session["results"]), session["decisions"][idx])
-        await query.edit_message_text(text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+        await _safe_edit(query,text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
         await _show_next_item(query.message, session, user_id)
 
     elif action == "skip":
         session["decisions"][idx] = {"action": "skipped", "item_id": None}
         text, _ = _build_item_card(result, idx, len(session["results"]), session["decisions"][idx])
-        await query.edit_message_text(text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+        await _safe_edit(query,text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
         await _show_next_item(query.message, session, user_id)
 
     elif action == "search":
         session["searching_for_idx"] = idx
-        await query.edit_message_text(
+        await _safe_edit(query,
             f"🔍 <b>Search collection</b> for item {idx + 1}:\n"
             f"<i>{_esc(result['identified']['description'][:100])}</i>\n\n"
             "Type any keywords (name, colour, brand, SKU):",
@@ -714,18 +739,18 @@ async def handle_search_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def handle_setdate_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles date selection when EXIF was missing."""
     query = update.callback_query
-    await query.answer()
+    await _safe_answer(query)
     user_id = update.effective_user.id
     pending = _pending.get(user_id)
     if not pending:
-        await query.edit_message_text("Session expired. Send the photo again.")
+        await _safe_edit(query,"Session expired. Send the photo again.")
         return
 
     chosen = query.data.split(":", 1)[1]  # ISO date or "pick"
 
     if chosen == "pick":
         _pending[user_id]["waiting_for_date_text"] = True
-        await query.edit_message_text(
+        await _safe_edit(query,
             "Type the date in format <b>YYYY-MM-DD</b> (e.g. 2026-06-15):",
             parse_mode=ParseMode.HTML,
         )
@@ -738,21 +763,21 @@ async def handle_setdate_callback(update: Update, context: ContextTypes.DEFAULT_
 
 async def handle_always_add_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
+    await _safe_answer(query)
     item_id = query.data.split(":", 1)[1]
     catalog = collection_cache.load()
     item = next((c for c in catalog if c["id"] == item_id), None)
     if not item:
-        await query.edit_message_text("Item not found in cache. Try /refresh then retry.")
+        await _safe_edit(query,"Item not found in cache. Try /refresh then retry.")
         return
     items = _load_always_worn()
     if any(i["id"] == item_id for i in items):
-        await query.edit_message_text(f"{item['name']} is already in your always-worn list.")
+        await _safe_edit(query,f"{item['name']} is already in your always-worn list.")
         return
     items.append({"id": item_id, "name": item["name"]})
     _save_always_worn(items)
     url = f"https://www.notion.so/{item_id.replace('-', '')}"
-    await query.edit_message_text(
+    await _safe_edit(query,
         f'💍 Added: <a href="{url}">{_esc(item["name"])}</a>\n\nThis will be included in every OOTD entry.',
         parse_mode=ParseMode.HTML,
     )
@@ -760,7 +785,7 @@ async def handle_always_add_callback(update: Update, context: ContextTypes.DEFAU
 
 async def handle_pick_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
+    await _safe_answer(query)
     user_id = update.effective_user.id
     session = _sessions.get(user_id)
     if not session:
@@ -782,7 +807,7 @@ async def handle_pick_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     }
     session.pop("searching_for_idx", None)
 
-    await query.edit_message_text(
+    await _safe_edit(query,
         f"✏️ Set item {idx + 1} to: <b>{_esc(item_name)}</b>",
         parse_mode=ParseMode.HTML,
     )
@@ -808,7 +833,7 @@ async def _generate_story_bg(chat_id: int, page_id: str, all_images: list[bytes]
 
 async def _do_confirm(query, session: dict, user_id: int):
     if not session:
-        await query.edit_message_text("Session expired.")
+        await _safe_edit(query,"Session expired.")
         return
 
     decisions = session["decisions"]
@@ -824,7 +849,7 @@ async def _do_confirm(query, session: dict, user_id: int):
     item_ids = always_ids + [i for i in reviewed_ids if i not in seen]
 
     if not item_ids:
-        await query.edit_message_text("No items approved. Nothing to log.")
+        await _safe_edit(query,"No items approved. Nothing to log.")
         _sessions.pop(user_id, None)
         return
 
@@ -856,7 +881,7 @@ async def _do_confirm(query, session: dict, user_id: int):
     outfit_date = session["date"]
     n_photos = len(all_images)
 
-    await query.edit_message_text(
+    await _safe_edit(query,
         f"⏳ Uploading {n_photos} photo{'s' if n_photos > 1 else ''} and creating Notion entry..."
     )
 
@@ -883,7 +908,7 @@ async def _do_confirm(query, session: dict, user_id: int):
             f"📷 {len(image_urls)} photo{'s' if len(image_urls) > 1 else ''} added"
             if image_urls else "📷 Image upload failed"
         )
-        await query.edit_message_text(
+        await _safe_edit(query,
             f"✅ <b>Logged!</b>\n\n"
             f"📅 {outfit_date}\n"
             f"👗 {len(item_ids)} item(s) linked\n"
@@ -892,7 +917,7 @@ async def _do_confirm(query, session: dict, user_id: int):
             parse_mode=ParseMode.HTML,
         )
     except Exception as e:
-        await query.edit_message_text(f"❌ Notion write failed: {e}")
+        await _safe_edit(query,f"❌ Notion write failed: {e}")
         print(f"Notion write error: {traceback.format_exc()}", file=sys.stderr)
         return
 
