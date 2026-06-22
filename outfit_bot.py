@@ -1000,7 +1000,28 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
+PIDFILE = Path(__file__).parent / "outfit_bot.pid"
+
+def _acquire_pidlock():
+    """Refuse to start if another instance is already running."""
+    if PIDFILE.exists():
+        old_pid = int(PIDFILE.read_text().strip())
+        try:
+            os.kill(old_pid, 0)  # signal 0 = check existence only
+            print(f"ERROR: another instance is already running (PID {old_pid}). Exiting.", flush=True)
+            sys.exit(1)
+        except ProcessLookupError:
+            pass  # stale pidfile — old process is gone
+    PIDFILE.write_text(str(os.getpid()))
+
+def _release_pidlock():
+    PIDFILE.unlink(missing_ok=True)
+
 def main():
+    _acquire_pidlock()
+    import atexit
+    atexit.register(_release_pidlock)
+
     request = HTTPXRequest(read_timeout=60, connect_timeout=20, write_timeout=60, media_write_timeout=60)
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).request(request).build()
 
