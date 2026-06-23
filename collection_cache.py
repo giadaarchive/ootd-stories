@@ -81,7 +81,9 @@ def fetch_all_items():
             sku_brand = sku_parts[0] if sku_parts else ""
             sku_cat = sku_parts[1] if len(sku_parts) >= 2 else ""
 
-            colour = _get_text(p.get("Colour", {}).get("rich_text", []))
+            colour = _get_text(p.get("Primary Colour", {}).get("rich_text", []))
+            if not colour:
+                colour = _get_text(p.get("Colour Detail", {}).get("rich_text", []))
             colour_detail = _get_text(p.get("Colour Detail", {}).get("rich_text", []))
 
             # Designer: relation — store page IDs; name resolution happens separately

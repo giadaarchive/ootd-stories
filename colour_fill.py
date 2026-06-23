@@ -215,7 +215,9 @@ def fetch_all_items() -> list[dict]:
             name = "".join(t.get("plain_text", "") for t in p.get("Second best", {}).get("title", []))
             if not name:
                 name = "".join(t.get("plain_text", "") for t in p.get("Old Title", {}).get("rich_text", []))
-            colour = "".join(t.get("plain_text", "") for t in p.get("Colour", {}).get("rich_text", []))
+            colour = "".join(t.get("plain_text", "") for t in p.get("Primary Colour", {}).get("rich_text", []))
+            if not colour:
+                colour = "".join(t.get("plain_text", "") for t in p.get("Colour Detail", {}).get("rich_text", []))
             sku = "".join(t.get("plain_text", "") for t in p.get("SKU", {}).get("rich_text", []))
             items.append({"id": page["id"], "name": name, "colour": colour, "sku": sku})
         if not data.get("has_more"):
@@ -231,7 +233,7 @@ def write_colour(page_id: str, colour: str, dry_run: bool = False) -> bool:
     r = requests.patch(
         f"https://api.notion.com/v1/pages/{page_id}",
         headers=NOTION_H,
-        json={"properties": {"Colour": {"rich_text": [{"type": "text", "text": {"content": colour}}]}}},
+        json={"properties": {"Primary Colour": {"rich_text": [{"type": "text", "text": {"content": colour}}]}}},
         timeout=15,
     )
     time.sleep(0.35)
