@@ -440,8 +440,19 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             _media_groups[mgid]["all_images"].append(raw)
     else:
-        print(f"[photo] single from user {user_id}", flush=True)
-        await _process_images(update, context, [raw])
+        # Single photo — if a session is already active, append rather than overwrite
+        session = _sessions.get(user_id)
+        if session:
+            session["all_images"].append(raw)
+            n = len(session["all_images"])
+            print(f"[photo] appended to active session for user {user_id} ({n} photos now)", flush=True)
+            await update.message.reply_text(
+                f"📸 Photo {n} added to your current outfit.",
+                disable_web_page_preview=True,
+            )
+        else:
+            print(f"[photo] single from user {user_id}", flush=True)
+            await _process_images(update, context, [raw])
 
 
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -458,8 +469,15 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             _media_groups[mgid]["all_images"].append(raw)
     else:
-        print(f"[document] single from user {user_id}", flush=True)
-        await _process_images(update, context, [raw])
+        session = _sessions.get(user_id)
+        if session:
+            session["all_images"].append(raw)
+            n = len(session["all_images"])
+            print(f"[document] appended to active session for user {user_id} ({n} photos now)", flush=True)
+            await update.message.reply_text(f"📸 Photo {n} added to your current outfit.")
+        else:
+            print(f"[document] single from user {user_id}", flush=True)
+            await _process_images(update, context, [raw])
 
 
 async def _process_images(update: Update, context: ContextTypes.DEFAULT_TYPE, all_images: list[bytes]):
