@@ -252,7 +252,11 @@ def _build_summary(session: dict) -> str:
     for r in skipped:
         lines.append(f"⏭️ <i>{_esc(r['identified']['type'])} — skipped</i>")
 
-    total = len(always) + len(approved)
+    for extra in session.get("extra_items", []):
+        url = f"https://www.notion.so/{extra['item_id'].replace('-', '')}"
+        lines.append(f'➕ <a href="{url}">{_esc(extra["item_name"])}</a>')
+
+    total = len(always) + len(approved) + len(session.get("extra_items", []))
     lines.append(f"\n<b>Date:</b> {session['date']}")
     lines.append(f"<b>Items to link:</b> {total}")
     return "\n".join(lines)
@@ -622,7 +626,8 @@ async def _show_next_item(message, session: dict, user_id: int):
         [
             InlineKeyboardButton("✅ Log to Notion", callback_data="confirm"),
             InlineKeyboardButton("🗑️ Cancel", callback_data="cancel"),
-        ]
+        ],
+        [InlineKeyboardButton("➕ Add missing item", callback_data="add_item")],
     ])
     await message.reply_text(summary, parse_mode=ParseMode.HTML, reply_markup=keyboard,
                               disable_web_page_preview=True)
@@ -646,8 +651,50 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _safe_edit(query,"Cancelled.")
         return
 
+    if data == "add_item":
+        if not session:
+            await _safe_edit(query,"Session expired. Send a new photo.")
+            return
+        session["adding_item"] = True
+        await _safe_edit(query,
+            "➕ <b>Add missing item</b>\n\nType keywords to search (name, colour, brand, SKU):",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
     if not session:
         await _safe_edit(query,"Session expired. Send a new photo.")
+        return
+
+    if data == "add_cancel":
+        session.pop("adding_item", None)
+        await _safe_edit(query, "Add cancelled.")
+        return
+
+    if data.startswith("add_pick:"):
+        item_id = data.split(":", 1)[1]
+        catalog = collection_cache.load()
+        item = next((i for i in catalog if i["id"] == item_id), None)
+        item_name = item["name"] if item else item_id
+        session.setdefault("extra_items", []).append({"item_id": item_id, "item_name": item_name})
+        session.pop("adding_item", None)
+        url = f"https://www.notion.so/{item_id.replace('-', '')}"
+        await _safe_edit(query,
+            f'➕ Added: <a href="{url}">{_esc(item_name)}</a>',
+            parse_mode=ParseMode.HTML,
+            disable_web_page_preview=True,
+        )
+        # Re-show summary with updated items
+        summary = _build_summary(session)
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("✅ Log to Notion", callback_data="confirm"),
+                InlineKeyboardButton("🗑️ Cancel", callback_data="cancel"),
+            ],
+            [InlineKeyboardButton("➕ Add missing item", callback_data="add_item")],
+        ])
+        await query.message.reply_text(summary, parse_mode=ParseMode.HTML,
+                                       reply_markup=keyboard, disable_web_page_preview=True)
         return
 
     action, idx_str = data.split(":", 1)
@@ -718,11 +765,12 @@ async def handle_search_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
 
     session = _sessions.get(user_id)
-    if not session or "searching_for_idx" not in session:
+    if not session or ("searching_for_idx" not in session and not session.get("adding_item")):
         return
 
     query_text = update.message.text.strip()
-    idx = session["searching_for_idx"]
+    adding = session.get("adding_item", False)
+    idx = session.get("searching_for_idx")
 
     catalog = collection_cache.load()
     q = query_text.lower()
@@ -741,11 +789,16 @@ async def handle_search_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
     buttons = []
     for m in matches:
         label = f"{m['name'][:30]} | {m.get('designer','')[:12]} | {m.get('colour','')[:10]}"
-        # Encode name in callback carefully — use item id only, look up name later
-        buttons.append([
-            InlineKeyboardButton(label, callback_data=f"pick:{idx}:{m['id']}")
-        ])
-    buttons.append([InlineKeyboardButton("⏭️ Skip this item", callback_data=f"skip:{idx}")])
+        if adding:
+            buttons.append([InlineKeyboardButton(label, callback_data=f"add_pick:{m['id']}")])
+        else:
+            buttons.append([InlineKeyboardButton(label, callback_data=f"pick:{idx}:{m['id']}")])
+
+    if adding:
+        buttons.append([InlineKeyboardButton("✖️ Cancel add", callback_data="add_cancel")])
+    else:
+        buttons.append([InlineKeyboardButton("⏭️ Skip this item", callback_data=f"skip:{idx}")])
+
     await update.message.reply_text(
         f"Results for <b>{_esc(query_text)}</b>:",
         parse_mode=ParseMode.HTML,
@@ -863,8 +916,11 @@ async def _do_confirm(query, session: dict, user_id: int):
         for d in decisions
         if d and d["action"] in ("approved", "changed") and d.get("item_id")
     ]
+    extra_ids = [e["item_id"] for e in session.get("extra_items", []) if e.get("item_id")]
     seen = set(always_ids)
     item_ids = always_ids + [i for i in reviewed_ids if i not in seen]
+    seen.update(item_ids)
+    item_ids += [i for i in extra_ids if i not in seen]
 
     if not item_ids:
         await _safe_edit(query,"No items approved. Nothing to log.")
