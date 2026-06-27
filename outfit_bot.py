@@ -521,10 +521,12 @@ async def _process_images(update: Update, context: ContextTypes.DEFAULT_TYPE, al
     print(f"[process] start user={user_id} n={n} hash={img_hash[:8]}", flush=True)
 
     # ── Date resolution ───────────────────────────────────────────────────────
+    from telegram.error import NetworkError as TgNetworkError
+
     if user_id in _date_override:
         outfit_date = _date_override.pop(user_id)
         print(f"[process] date override: {outfit_date}", flush=True)
-        msg = await update.message.reply_text(
+        msg = await _safe_reply(update.message,
             f"{label}\n📅 <b>{outfit_date}</b> <i>(set manually)</i>",
             parse_mode=ParseMode.HTML,
         )
@@ -534,7 +536,7 @@ async def _process_images(update: Update, context: ContextTypes.DEFAULT_TYPE, al
     exif_date = _extract_exif_date(primary)
     print(f"[process] exif_date={exif_date!r}", flush=True)
     if exif_date:
-        msg = await update.message.reply_text(
+        msg = await _safe_reply(update.message,
             f"{label}\n📅 <b>{exif_date}</b> <i>(from image metadata)</i>",
             parse_mode=ParseMode.HTML,
         )
@@ -563,9 +565,14 @@ async def _process_images(update: Update, context: ContextTypes.DEFAULT_TYPE, al
             "Send as a <b>file</b> next time to preserve the date.</i>\n\n"
             "<b>When was this worn?</b>"
         )
-        await update.message.reply_text(note, parse_mode=ParseMode.HTML,
-                                         reply_markup=InlineKeyboardMarkup(buttons),
-                                         disable_web_page_preview=True)
+        try:
+            await _safe_reply(update.message, note, parse_mode=ParseMode.HTML,
+                              reply_markup=InlineKeyboardMarkup(buttons),
+                              disable_web_page_preview=True)
+        except TgNetworkError:
+            # If we can't show the date picker, clear pending so next photo starts fresh
+            _pending.pop(user_id, None)
+            print(f"[process] network failed sending date picker — pending cleared for {user_id}", flush=True)
 
 
 async def _run_ai_and_review(
