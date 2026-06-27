@@ -442,6 +442,19 @@ async def _download_document(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    try:
+        await _handle_photo_inner(update, context)
+    except Exception as e:
+        print(f"[photo] UNCAUGHT in handle_photo: {e!r}\n{traceback.format_exc()}", flush=True)
+        try:
+            await update.effective_message.reply_text(f"⚠️ Error processing photo: {e}")
+        except Exception:
+            pass
+        raise
+
+
+async def _handle_photo_inner(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
     mgid = update.message.media_group_id
     raw = await _download_photo(update, context)
 
@@ -505,10 +518,12 @@ async def _process_images(update: Update, context: ContextTypes.DEFAULT_TYPE, al
 
     n = len(all_images)
     label = f"📸 {n} photo{'s' if n > 1 else ''} received."
+    print(f"[process] start user={user_id} n={n} hash={img_hash[:8]}", flush=True)
 
     # ── Date resolution ───────────────────────────────────────────────────────
     if user_id in _date_override:
         outfit_date = _date_override.pop(user_id)
+        print(f"[process] date override: {outfit_date}", flush=True)
         msg = await update.message.reply_text(
             f"{label}\n📅 <b>{outfit_date}</b> <i>(set manually)</i>",
             parse_mode=ParseMode.HTML,
@@ -517,6 +532,7 @@ async def _process_images(update: Update, context: ContextTypes.DEFAULT_TYPE, al
         return
 
     exif_date = _extract_exif_date(primary)
+    print(f"[process] exif_date={exif_date!r}", flush=True)
     if exif_date:
         msg = await update.message.reply_text(
             f"{label}\n📅 <b>{exif_date}</b> <i>(from image metadata)</i>",
@@ -525,6 +541,7 @@ async def _process_images(update: Update, context: ContextTypes.DEFAULT_TYPE, al
         await _run_ai_and_review(update, context, all_images, img_hash, exif_date, status_msg=msg)
     else:
         # No EXIF — show date picker, hold images in pending
+        print(f"[process] no EXIF — showing date picker", flush=True)
         _pending[user_id] = {"all_images": all_images, "img_hash": img_hash}
 
         from datetime import timedelta
@@ -562,6 +579,7 @@ async def _run_ai_and_review(
     """Run AI matching on primary image, then start review flow."""
     user_id = update.effective_user.id
     eff_msg = update.effective_message
+    print(f"[ai] _run_ai_and_review start user={user_id} date={outfit_date}", flush=True)
     msg = status_msg or await eff_msg.reply_text("🔍 Identifying items...")
     await msg.edit_text(
         f"📅 <b>{outfit_date}</b>\n\n🔍 Identifying items...",
@@ -828,6 +846,7 @@ async def handle_setdate_callback(update: Update, context: ContextTypes.DEFAULT_
     query = update.callback_query
     await _safe_answer(query)
     user_id = update.effective_user.id
+    print(f"[setdate] callback user={user_id} data={query.data!r}", flush=True)
     pending = _pending.get(user_id)
     if not pending:
         await _safe_edit(query,"Session expired. Send the photo again.")
