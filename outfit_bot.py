@@ -139,6 +139,16 @@ async def _safe_answer(query) -> bool:
         raise
 
 
+async def _safe_reply(message, text: str, **kwargs):
+    """Send reply, retrying once on NetworkError (DNS blip protection)."""
+    from telegram.error import NetworkError as TgNetworkError
+    try:
+        return await message.reply_text(text, **kwargs)
+    except TgNetworkError:
+        await asyncio.sleep(2)
+        return await message.reply_text(text, **kwargs)
+
+
 async def _safe_edit(query, text: str, **kwargs) -> bool:
     """Edit a callback message, ignoring 'Message is not modified' errors."""
     from telegram.error import BadRequest
@@ -610,14 +620,20 @@ async def _run_ai_and_review(
 
 
 async def _show_next_item(message, session: dict, user_id: int):
+    from telegram.error import NetworkError as TgNetworkError
     results = session["results"]
     decisions = session["decisions"]
 
     for idx in range(len(results)):
         if decisions[idx] is None:
             text, keyboard = _build_item_card(results[idx], idx, len(results))
-            await message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard,
-                                      disable_web_page_preview=True)
+            try:
+                await _safe_reply(message, text, parse_mode=ParseMode.HTML,
+                                  reply_markup=keyboard, disable_web_page_preview=True)
+            except TgNetworkError:
+                # Both attempts failed — clear the session so next photo starts fresh
+                _sessions.pop(user_id, None)
+                print(f"[net] _show_next_item: network failed twice, session cleared for {user_id}", flush=True)
             return
 
     # All decided — show summary + confirm
@@ -629,8 +645,8 @@ async def _show_next_item(message, session: dict, user_id: int):
         ],
         [InlineKeyboardButton("➕ Add missing item", callback_data="add_item")],
     ])
-    await message.reply_text(summary, parse_mode=ParseMode.HTML, reply_markup=keyboard,
-                              disable_web_page_preview=True)
+    await _safe_reply(message, summary, parse_mode=ParseMode.HTML,
+                      reply_markup=keyboard, disable_web_page_preview=True)
 
 
 # ── Callback handlers ─────────────────────────────────────────────────────────
@@ -1029,7 +1045,14 @@ def _write_postmortem(error: Exception, tb: str, update: object):
 
     # Infer likely cause from error type / message
     err_str = str(error)
-    if "TimedOut" in error_type:
+    if "NetworkError" in error_type or "ConnectError" in err_str or "nodename nor servname" in err_str:
+        cause = ("DNS resolution failure connecting to Telegram or Anthropic API. "
+                 "Network dropped (sleep/VPN/outage) mid-handler. "
+                 "Bot process stayed alive but the active session message was never sent. "
+                 "User sees item cards with dead buttons because callbacks can't be answered.")
+        fix = ("Restart bot to clear stuck session. PTB polling auto-reconnects after DNS recovers. "
+               "User must resend photo to start fresh.")
+    elif "TimedOut" in error_type:
         cause = "Telegram CDN timeout downloading photo. Usually transient — retry logic now in place."
         fix = "Added _download_with_retry() with 3 attempts and exponential backoff."
     elif "NoneType" in err_str or error is None:
@@ -1083,7 +1106,11 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     if error is None:
         return
 
-    tb = traceback.format_exc()
+    # format_exc() only captures the current thread's exception state — useless in async.
+    # Use error.__traceback__ which PTB always populates.
+    tb = "".join(traceback.format_exception(type(error), error, error.__traceback__))
+    if not tb.strip() or tb.strip() == "NoneType: None":
+        tb = repr(error)
     print(f"Unhandled exception:\n{tb}", file=sys.stderr)
     _write_postmortem(error, tb, update)
 
