@@ -42,6 +42,7 @@ One task, one file. Every skill links to the script that executes it and the REA
 | Skill | Script | Trigger |
 |-------|--------|---------|
 | [Generate outfit looks for shop item](./generate-outfits.md) | `generate_outfits.py` | Item is listed for sale on the shop |
+| [Find and set designer house logos](./designer-logos.md) | `find_designer_logos.py` | New designer added with no logo; or periodic catch-up |
 
 ## Purchase Research
 
