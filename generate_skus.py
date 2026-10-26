@@ -92,12 +92,19 @@ def fetch_all_wardrobe_items():
 
 # ── SKU builder ───────────────────────────────────────────────────────────────
 
+REDO_OTH = "--redo-oth" in sys.argv[1:]   # also redo SKUs whose category code is OTH
+TAKEN = set()                             # SKUs kept as they are; new SKUs never reuse them
+
+
 def should_regenerate(existing):
     if not existing:
         return True
     parts = existing.upper().split("-")
     brand_code = parts[0] if parts else ""
+    category_code = parts[1] if len(parts) >= 2 else ""
     material_code = parts[2] if len(parts) >= 3 else ""
+    if REDO_OTH and category_code == "OTH":
+        return True
     return brand_code == "UNB" or material_code == "UNK"
 
 
@@ -152,10 +159,12 @@ def build_sku(page, counters):
 
     # Sequential counter per brand+cat+mat+year
     key = f"{brand_code}-{cat_code}-{mat_code}-{yy}"
-    counters[key] = counters.get(key, 0) + 1
-    num = str(counters[key]).zfill(3)
-
-    generated = f"{brand_code}-{cat_code}-{mat_code}-{yy}-{num}"
+    while True:   # next free number; never reuse a SKU that is kept
+        counters[key] = counters.get(key, 0) + 1
+        generated = f"{key}-{str(counters[key]).zfill(3)}"
+        if generated.upper() not in TAKEN:
+            break
+    TAKEN.add(generated.upper())
     return {"page_id": page["id"], "title": title, "existing": existing or "", "generated": generated, "skip": False}
 
 
@@ -168,7 +177,11 @@ def main():
     items = fetch_all_wardrobe_items()
     print(f"  Found {len(items)} items\n")
 
-    print("Building SKUs...")
+    print("Building SKUs..." + ("  (--redo-oth: also redoing OTH category codes)" if REDO_OTH else ""))
+    for page in items:
+        kept = get_rich_text(page.get("properties", {}), "SKU")
+        if kept and not should_regenerate(kept):
+            TAKEN.add(kept.upper())
     counters = {}
     sku_list = [build_sku(page, counters) for page in items]
 
