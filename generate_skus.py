@@ -2,7 +2,7 @@
 """
 Generate full item SKUs: [BRAND_CODE]-[CATEGORY_CODE]-[MATERIAL_CODE]-[YY]-[###]
 - BRAND_CODE    from Designer page → SKU Code
-- CATEGORY_CODE from Category relation → SKU Code
+- CATEGORY_CODE from 👗 Pieces → Category relation → SKU Code
 - MATERIAL_CODE from Material Category relation → SKU Code
 - YY            from "Year It's Made (first hand)" date on item
 - ###           sequential per brand+category+material+year combo
@@ -130,17 +130,19 @@ def build_sku(page, counters):
     if raw.upper().startswith("MTM"):
         brand_code = "MTM"
 
-    # CATEGORY CODE — from "Category (relation)" or "Material Category" or select
-    cat_code = get_relation_code(props, "Category (relation)") or \
-               get_relation_code(props, "Category relation") or \
-               "OTH"
-
-    # Try Category select as fallback
-    if cat_code == "OTH":
-        cat_sel = props.get("Category", {}).get("select")
-        if cat_sel:
-            # Map select name to a code via Category DB pages (already cached after first run)
-            cat_code = cat_sel["name"][:3].upper()
+    # CATEGORY CODE — from 👗 Pieces → Pieces page → Category relation → SKU Code
+    # Fixed 26 Oct 2026: the "Category" select (Basic / Basic wow / Wow) is a statement
+    # level, never a category code. Note: Notion returns an EMPTY relation if the
+    # connection cannot see the Pieces database, which also gives OTH.
+    cat_code = "OTH"
+    pieces_prop = next((v for k, v in props.items() if "Pieces" in k and v.get("type") == "relation"), {})
+    pieces = pieces_prop.get("relation", [])
+    if pieces:
+        piece_page = fetch_page(pieces[0]["id"])
+        if piece_page:
+            code = get_relation_code(piece_page.get("properties", {}), "Category")
+            if code:
+                cat_code = code
 
     # MATERIAL CODE — from Material Category relation → SKU Code
     mat_code = get_relation_code(props, "Material Category") or "MIX"
