@@ -2,7 +2,7 @@
 """
 Generate full item SKUs: [BRAND_CODE]-[CATEGORY_CODE]-[MATERIAL_CODE]-[YY]-[###]
 - BRAND_CODE    from Designer page → SKU Code
-- CATEGORY_CODE from Category relation → SKU Code
+- CATEGORY_CODE from 👗 Pieces → Category relation → SKU Code
 - MATERIAL_CODE from Material Category relation → SKU Code
 - YY            from "Year It's Made (first hand)" date on item
 - ###           sequential per brand+category+material+year combo
@@ -92,12 +92,19 @@ def fetch_all_wardrobe_items():
 
 # ── SKU builder ───────────────────────────────────────────────────────────────
 
+REDO_OTH = "--redo-oth" in sys.argv[1:]   # also redo SKUs whose category code is OTH
+TAKEN = set()                             # SKUs kept as they are; new SKUs never reuse them
+
+
 def should_regenerate(existing):
     if not existing:
         return True
     parts = existing.upper().split("-")
     brand_code = parts[0] if parts else ""
+    category_code = parts[1] if len(parts) >= 2 else ""
     material_code = parts[2] if len(parts) >= 3 else ""
+    if REDO_OTH and category_code == "OTH":
+        return True
     return brand_code == "UNB" or material_code == "UNK"
 
 
@@ -130,17 +137,19 @@ def build_sku(page, counters):
     if raw.upper().startswith("MTM"):
         brand_code = "MTM"
 
-    # CATEGORY CODE — from "Category (relation)" or "Material Category" or select
-    cat_code = get_relation_code(props, "Category (relation)") or \
-               get_relation_code(props, "Category relation") or \
-               "OTH"
-
-    # Try Category select as fallback
-    if cat_code == "OTH":
-        cat_sel = props.get("Category", {}).get("select")
-        if cat_sel:
-            # Map select name to a code via Category DB pages (already cached after first run)
-            cat_code = cat_sel["name"][:3].upper()
+    # CATEGORY CODE — from 👗 Pieces → Pieces page → Category relation → SKU Code
+    # Fixed 26 Oct 2026: the "Category" select (Basic / Basic wow / Wow) is a statement
+    # level, never a category code. Note: Notion returns an EMPTY relation if the
+    # connection cannot see the Pieces database, which also gives OTH.
+    cat_code = "OTH"
+    pieces_prop = next((v for k, v in props.items() if "Pieces" in k and v.get("type") == "relation"), {})
+    pieces = pieces_prop.get("relation", [])
+    if pieces:
+        piece_page = fetch_page(pieces[0]["id"])
+        if piece_page:
+            code = get_relation_code(piece_page.get("properties", {}), "Category")
+            if code:
+                cat_code = code
 
     # MATERIAL CODE — from Material Category relation → SKU Code
     mat_code = get_relation_code(props, "Material Category") or "MIX"
@@ -150,10 +159,12 @@ def build_sku(page, counters):
 
     # Sequential counter per brand+cat+mat+year
     key = f"{brand_code}-{cat_code}-{mat_code}-{yy}"
-    counters[key] = counters.get(key, 0) + 1
-    num = str(counters[key]).zfill(3)
-
-    generated = f"{brand_code}-{cat_code}-{mat_code}-{yy}-{num}"
+    while True:   # next free number; never reuse a SKU that is kept
+        counters[key] = counters.get(key, 0) + 1
+        generated = f"{key}-{str(counters[key]).zfill(3)}"
+        if generated.upper() not in TAKEN:
+            break
+    TAKEN.add(generated.upper())
     return {"page_id": page["id"], "title": title, "existing": existing or "", "generated": generated, "skip": False}
 
 
@@ -166,7 +177,11 @@ def main():
     items = fetch_all_wardrobe_items()
     print(f"  Found {len(items)} items\n")
 
-    print("Building SKUs...")
+    print("Building SKUs..." + ("  (--redo-oth: also redoing OTH category codes)" if REDO_OTH else ""))
+    for page in items:
+        kept = get_rich_text(page.get("properties", {}), "SKU")
+        if kept and not should_regenerate(kept):
+            TAKEN.add(kept.upper())
     counters = {}
     sku_list = [build_sku(page, counters) for page in items]
 
